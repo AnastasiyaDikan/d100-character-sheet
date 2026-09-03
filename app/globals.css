@@ -252,6 +252,17 @@ input[type="file"] { display: none; }
 .mini-list { min-height: 150px; }.mini-list-scroll { height: 108px; overflow: auto; padding: 6px; }
 .mini-list-row { display: grid; grid-template-columns: 1fr 22px; gap: 3px; margin-bottom: 4px; }.mini-list-row input { min-width: 0; border: 0; border-bottom: 1px solid #98805c; background: transparent; }.mini-list-row button { border: 0; background: transparent; }.mini-list-row svg { width: 12px; }
 .counters-panel { display: grid; grid-template-columns: .8fr .8fr 1.5fr .8fr; align-items: end; gap: 8px; padding: 10px; }
+.front-derived-panel { display: grid; grid-template-columns: 1fr 1.25fr .68fr; gap: 1px; background: #80623c; }
+.front-stat-box { min-width: 0; padding: 9px; background: #f5e5bc; }
+.front-stat-box h3 { margin: 0 0 7px; text-align: center; text-transform: uppercase; font-size: .72rem; }
+.front-stat-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.front-stat-box dl { margin: 5px 0 0; }
+.front-stat-box dl > div { min-height: 22px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ad9166; font-size: .68rem; }
+.front-stat-box dd { margin: 0; font-weight: 700; }
+.front-stat-box .negative { color: #9a1010; }
+.natural-armor-box { padding-inline: 7px; }
+.natural-armor-box h3 { font-size: .64rem; }
+.natural-armor-box .formula-note { margin: 5px 0 0; justify-content: center; white-space: nowrap; }
 .fate-pair { display: grid; grid-template-columns: 1fr auto 1fr; align-items: end; gap: 4px; }.fate-pair > span { padding-bottom: 7px; color: #6f2019; font-weight: 700; }
 .number-field { min-width: 0; display: grid; gap: 3px; color: #5e4b34; font: .68rem system-ui, sans-serif; }
 .number-field input { width: 100%; min-width: 0; height: 31px; border: 1px solid #987b51; background: #fff8dfaa; text-align: center; color: #391e15; font: 700 .95rem Georgia, serif; }
@@ -311,7 +322,7 @@ input[type="file"] { display: none; }
   .workspace-shell { padding-inline: 10px; }.sheet-scene { width: calc(100vw - 20px); }.sheet-page { padding: 26px 22px; }.identity-grid { grid-template-columns: 96px 1fr 1fr; gap: 10px; }.front-main-grid, .back-grid { grid-template-columns: 1fr; }.inventory-panel { min-height: 650px; }.inventory-scroll { height: 580px; }.toolbar .character-title, .save-status { display: none; }.toolbar-actions { width: 100%; justify-content: flex-end; }.race-layout { grid-template-columns: 220px 1fr; }
 }
 @media (max-width: 720px) {
-  .workspace-shell { padding-top: 70px; }.toolbar { top: 6px; }.toolbar > button span, .toolbar-load span, .toolbar-actions button[data-tutorial="save"] { font-size: 0; }.toolbar > button span { display: none; }.sheet-page { padding: 22px 14px; }.identity-grid { grid-template-columns: 82px 1fr; }.identity-side { grid-column: 1 / -1; }.front-main-grid { display: block; }.front-right { margin-top: 12px; }.aptitudes-grid, .characteristics-grid { grid-template-columns: repeat(2, 1fr); }.race-layout { grid-template-columns: 1fr; }.race-list { max-height: 210px; }.race-columns { grid-template-columns: 1fr; }.race-choice { grid-template-columns: 1fr; }.back-grid { display: block; }.inventory-panel { margin-top: 12px; }.derived-panel { grid-template-columns: repeat(2, 1fr); }.page-turn { right: -4px; }.start-card { padding: 44px 26px 28px; }
+  .workspace-shell { padding-top: 70px; }.toolbar { top: 6px; }.toolbar > button span, .toolbar-load span, .toolbar-actions button[data-tutorial="save"] { font-size: 0; }.toolbar > button span { display: none; }.sheet-page { padding: 22px 14px; }.identity-grid { grid-template-columns: 82px 1fr; }.identity-side { grid-column: 1 / -1; }.front-main-grid { display: block; }.front-right { margin-top: 12px; }.aptitudes-grid, .characteristics-grid { grid-template-columns: repeat(2, 1fr); }.race-layout { grid-template-columns: 1fr; }.race-list { max-height: 210px; }.race-columns { grid-template-columns: 1fr; }.race-choice { grid-template-columns: 1fr; }.back-grid { display: block; }.inventory-panel { margin-top: 12px; }.derived-panel { grid-template-columns: repeat(2, 1fr); }.front-derived-panel { grid-template-columns: 1fr 1fr; }.natural-armor-box { grid-column: 1 / -1; }.page-turn { right: -4px; }.start-card { padding: 44px 26px 28px; }
 }
 @media print {
   .toolbar, .page-turn, .breakthrough-button { display: none !important; }.workspace-shell { padding: 0; background: #fff; }.sheet-scene, .sheet-paper { width: 100%; box-shadow: none; border: 0; }.sheet-page { min-height: auto; }
