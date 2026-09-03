@@ -55,7 +55,7 @@ export default function TutorialGuide({
       <span>Шаг {step + 1} из {total}</span>
       <h2>{tutorial[1]}</h2>
       {tutorial[0] === "talents" ? <p>
-        Здесь можно внести <a href="https://ffg.fandom.com/ru/wiki/Таланты#.D0.93.D1.80.D1.83.D0.BF.D0.BF.D1.8B" target="_blank" rel="noreferrer">Таланты и черты</a> персонажа с сайта (свойства некоторых талантов необходимо согласовывать с Мастером).
+        Здесь можно внести <a href="https://ffg.fandom.com/ru/wiki/Таланты#.D0.93.D1.80.D1.83.D0.BF.D0.BF.D1.8B" target="_blank" rel="noreferrer">Таланты и черты</a> персонажа с сайта (свойства некоторых талантов необходимо согласовывать с Мастером). Они могут браться либо с сайта, либо добавляться самостоятельно
       </p> : <p>{tutorial[2]}</p>}
       <div>
         <Button className="negative-button" onClick={onClose}>Пропустить</Button>
