@@ -43,7 +43,10 @@ export default function TalentCatalogDialog({ open, onOpenChange, existingTalent
     setLoading(true);
     setError(false);
     try {
-      const response = await fetch("/api/talents", { headers: { Accept: "application/json" } });
+      const response = await fetch("/api/talents?catalog=2", {
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      });
       if (!response.ok) throw new Error(String(response.status));
       const snapshot = await response.json() as TalentSnapshot;
       if (!Array.isArray(snapshot.talents) || snapshot.talents.length === 0) throw new Error("empty");
