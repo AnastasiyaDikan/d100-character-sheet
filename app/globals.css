@@ -243,6 +243,8 @@ input[type="file"] { display: none; }
 .talent-card button { padding: 9px 0; text-decoration: none !important; }
 .talent-card button > span { display: grid; gap: 2px; }.talent-card small { color: #7c5f3d; font: .62rem system-ui, sans-serif; text-transform: uppercase; letter-spacing: .08em; }
 .talent-card p { margin: 4px 0; line-height: 1.45; }
+.talent-card-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+.talent-card-actions button { padding: 5px 0; }
 .talent-heading-actions { margin-left: auto; display: flex; align-items: center; gap: 3px; }.talent-heading-actions button { color: #5b271e; }.talent-heading-actions svg { width: 13px; }
 .talent-catalog-dialog { width: min(900px, calc(100vw - 30px)) !important; max-width: 900px !important; height: min(780px, calc(100vh - 30px)); grid-template-rows: auto auto 1fr auto; }
 .talent-catalog-dialog [data-slot="dialog-title"] { display: flex; align-items: center; gap: 8px; }.talent-catalog-dialog [data-slot="dialog-title"] svg { width: 20px; }

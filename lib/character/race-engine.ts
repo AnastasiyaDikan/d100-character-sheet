@@ -1,4 +1,5 @@
 import { CHARACTERISTICS } from "./data";
+import { effectiveBonus } from "./calculations";
 import type { Character, CharacteristicId, Race, RaceEffect, Talent } from "./types";
 
 const uid = (prefix: string) => `${prefix}-${globalThis.crypto?.randomUUID?.() ?? Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -27,7 +28,7 @@ function mergeNumbers(
 export function calculateRaceWounds(character: Character, race: Race) {
   if (!race.woundFactors) return race.wounds ?? character.woundsTotal;
   const total = Object.entries(race.woundFactors).reduce((sum, [id, multiplier]) => {
-    return sum + Math.floor(character.characteristics[id as CharacteristicId].value / 10) * (multiplier ?? 0);
+    return sum + effectiveBonus(character, id as CharacteristicId) * (multiplier ?? 0);
   }, race.woundFlat ?? 0);
   return race.woundCap === undefined ? total : Math.min(total, race.woundCap);
 }
@@ -35,7 +36,7 @@ export function calculateRaceWounds(character: Character, race: Race) {
 export function calculateNaturalArmor(character: Character, race: Race) {
   if (!race.naturalArmorFormula) return character.naturalArmor;
   const raw = race.naturalArmorFormula.base
-    + Math.floor(character.characteristics.endurance.value / 10) * race.naturalArmorFormula.enduranceMultiplier;
+    + effectiveBonus(character, "endurance") * race.naturalArmorFormula.enduranceMultiplier;
   return race.naturalArmorFormula.round === "ceil" ? Math.ceil(raw) : Math.floor(raw);
 }
 

@@ -10,6 +10,51 @@ export function bonus(character: Character, id: CharacteristicId) {
   return Math.floor(characteristicValue(character, id) / 10);
 }
 
+function descriptorIncludesCharacteristic(descriptor: string, id: CharacteristicId) {
+  const aliases: Record<CharacteristicId, string[]> = {
+    melee: ["навык рукопашной", "рукопаш"],
+    agility: ["ловкость"],
+    fellowship: ["общительность", "обаяние"],
+    shooting: ["навык стрельбы", "стрельб"],
+    endurance: ["выносливость", "телосложение", "стойкость"],
+    intelligence: ["интеллект"],
+    strength: ["сила"],
+    perception: ["восприятие"],
+    willpower: ["сила воли", "воля"],
+  };
+  const normalized = descriptor.toLocaleLowerCase("ru").replace(/ё/g, "е");
+  if (id === "strength") {
+    const withoutWillpower = normalized.replace(/сил[аы]\s+воли/g, "");
+    return aliases.strength.some((alias) => withoutWillpower.includes(alias));
+  }
+  return aliases[id].some((alias) => normalized.includes(alias));
+}
+
+/**
+ * Reads multipliers from talents such as "Сверхъестественная сила (3)".
+ * Both spelling variants (сверхъестественная/сверхестественная), grouped
+ * characteristics and the endurance synonyms are supported. Equal effects do
+ * not stack: the greatest multiplier wins.
+ */
+export function supernaturalMultiplier(character: Character, id: CharacteristicId) {
+  let multiplier = 1;
+  for (const talent of character.talents) {
+    for (const text of [talent.name, talent.properties]) {
+      const matches = text.matchAll(/(?:сверхъ?естественн[а-я]*|сверхчеловеческ[а-я]*)\s+([^().;:\n]{1,100}?)\s*\(\s*(\d+(?:[.,]\d+)?)\s*\)/giu);
+      for (const match of matches) {
+        if (!descriptorIncludesCharacteristic(match[1], id)) continue;
+        const value = Math.floor(Number(match[2].replace(",", ".")));
+        if (Number.isFinite(value)) multiplier = Math.max(multiplier, value);
+      }
+    }
+  }
+  return multiplier;
+}
+
+export function effectiveBonus(character: Character, id: CharacteristicId) {
+  return bonus(character, id) * supernaturalMultiplier(character, id);
+}
+
 export function skillModifier(level: number) {
   return [-20, 0, 10, 20, 30][Math.max(0, Math.min(4, level))];
 }
@@ -17,7 +62,7 @@ export function skillModifier(level: number) {
 export function skillThreshold(character: Character, skillId: string) {
   const skill = character.skills.find((item) => item.id === skillId);
   if (!skill) return 0;
-  return characteristicValue(character, skill.characteristic) + bonus(character, skill.characteristic) + skillModifier(skill.level);
+  return characteristicValue(character, skill.characteristic) + effectiveBonus(character, skill.characteristic) + skillModifier(skill.level);
 }
 
 function priceMultiplier(aptitudes: number) {
@@ -40,11 +85,11 @@ export function spentExperience(character: Character) {
 
 export function zoneDefense(character: Character, zone: HitZone) {
   const armor = character.armor.filter((item) => item.zones.includes(zone)).reduce((sum, item) => sum + item.armor, 0);
-  return armor + character.naturalArmor + bonus(character, "endurance");
+  return armor + character.naturalArmor + effectiveBonus(character, "endurance");
 }
 
 export function movement(character: Character) {
-  const agilityBonus = Math.max(0, Math.min(10, bonus(character, "agility")));
+  const agilityBonus = Math.max(0, Math.min(10, bonus(character, "agility"))) * supernaturalMultiplier(character, "agility");
   return {
     free: agilityBonus === 0 ? 0.5 : agilityBonus,
     halfAction: agilityBonus === 0 ? 1 : agilityBonus * 2,
@@ -61,11 +106,11 @@ const carryTable = [
 ];
 
 export function carrying(character: Character) {
-  const index = Math.max(0, Math.min(20, bonus(character, "strength") + bonus(character, "endurance")));
+  const index = Math.max(0, Math.min(20, effectiveBonus(character, "strength") + effectiveBonus(character, "endurance")));
   const [carry, lift, push] = carryTable[index];
   return { index, carry, lift, push };
 }
 
 export function fatigueThreshold(character: Character) {
-  return bonus(character, "endurance") + bonus(character, "willpower");
+  return effectiveBonus(character, "endurance") + effectiveBonus(character, "willpower");
 }

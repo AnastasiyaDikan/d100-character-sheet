@@ -3,7 +3,7 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen, Check, ChevronLeft, ChevronRight, CircleHelp, Download, Feather, FileUp,
-  HeartPulse, ImagePlus, Moon, Plus, RotateCcw, Save, Search, Shield, Skull,
+  HeartPulse, ImagePlus, Moon, Pencil, Plus, RotateCcw, Save, Search, Shield, Skull,
   Sparkles, Trash2, UserRound, X,
 } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -18,7 +18,7 @@ import SkillsPanel from "./SkillsPanel";
 import TalentCatalogDialog from "./TalentCatalogDialog";
 import TutorialGuide from "./TutorialGuide";
 import { CHARACTERISTICS, createCharacter, RACES } from "@/lib/character/data";
-import { bonus, carrying, characteristicValue, fatigueThreshold, movement, skillThreshold, spentExperience, zoneDefense } from "@/lib/character/calculations";
+import { bonus, carrying, characteristicValue, effectiveBonus, fatigueThreshold, movement, skillThreshold, spentExperience, supernaturalMultiplier, zoneDefense } from "@/lib/character/calculations";
 import { applyAptitudeCharacteristics, applyRace as applyRaceToCharacter, beginIndependentAptitudeDistribution, calculateNaturalArmor, calculateRaceWounds, independentAptitudeBudget } from "@/lib/character/race-engine";
 import { deleteAutosave, downloadCharacter, loadAutosave, normalizeCharacter, saveAutosave } from "@/lib/character/storage";
 import type { Armor, Character, CharacteristicId, HitZone, InventoryItem, Race, Talent, Weapon } from "@/lib/character/types";
@@ -83,7 +83,7 @@ function StartScreen({ autosave, onNew, onLoad, onRestore, onDeleteAutosave }: {
         <label className="load-button"><FileUp /> Загрузить персонажа<input type="file" accept="application/json,.json" onChange={onLoad} /></label>
       </div>
       {autosave && <div className="autosave-card"><div><span>Найдено автосохранение</span><strong>{autosave.name || "Безымянный персонаж"}</strong><time>{new Date(autosave.savedAt).toLocaleString("ru-RU")}</time></div><div className="autosave-actions"><Button size="sm" onClick={onRestore}><RotateCcw /> Восстановить</Button><Button size="icon-sm" variant="ghost" aria-label="Удалить автосохранение" onClick={onDeleteAutosave}><Trash2 /></Button></div></div>}
-      <p className="version">Character Sheet v0.4.1</p>
+      <p className="version">Character Sheet v0.5.0</p>
     </section>
   </main>;
 }
@@ -115,10 +115,12 @@ function RacePicker({ open, currentId, onOpenChange, onApply }: {
 
 function CharacteristicCard({ character, id, onChange }: { character: Character; id: CharacteristicId; onChange: (character: Character) => void }) {
   const item = character.characteristics[id];
+  const baseBonus = bonus(character, id);
+  const multiplier = supernaturalMultiplier(character, id);
   const updateItem = (patch: Partial<typeof item>) => onChange({ ...character, characteristics: { ...character.characteristics, [id]: { ...item, ...patch } } });
   return <article className="characteristic-card"><header><span>{item.label}</span><abbr title={item.label}>{item.short}</abbr></header><div className="characteristic-body">
     <label className="characteristic-value"><span>Значение</span><input type="number" min="0" value={item.value === 0 ? "" : item.value} placeholder="0" onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateItem({ value: event.target.value === "" ? 0 : Number(event.target.value) })} /></label>
-    <span className="bonus-pill">Бонус {bonus(character, id)}</span>
+    <span className="bonus-pill" title={multiplier > 1 ? `Базовый бонус ${baseBonus}, сверхъестественный множитель ×${multiplier}` : undefined}>Бонус {effectiveBonus(character, id)}{multiplier > 1 ? ` (${baseBonus}×${multiplier})` : ""}</span>
     <div className="advance-vertical" aria-label={`Развитие: ${item.advances} из 5`}>{[1, 2, 3, 4, 5].map((step) => <button key={step} className={step <= item.advances ? "active" : ""} aria-label={`${step} ступень развития`} onClick={() => { const next = item.advances === step ? step - 1 : step; updateItem({ advances: next, value: Math.max(0, item.value + (next - item.advances) * 5) }); }} />)}</div>
   </div></article>;
 }
@@ -132,15 +134,29 @@ function SkillsTable({ character, onChange }: { character: Character; onChange: 
 function TalentPanel({ character, onChange }: { character: Character; onChange: (character: Character) => void }) {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [draft, setDraft] = useState<DraftTalent>({ name: "", properties: "", requirements: "" });
   const filtered = character.talents.filter((talent) => talent.name.toLocaleLowerCase("ru").includes(query.toLocaleLowerCase("ru")));
-  const addTalent = () => { if (!draft.name.trim()) return; onChange({ ...character, talents: [...character.talents, { id: uid("talent"), ...draft, source: "talent" }] }); setDraft({ name: "", properties: "", requirements: "" }); setAdding(false); };
+  const closeEditor = () => { setAdding(false); setEditingId(null); setDraft({ name: "", properties: "", requirements: "" }); };
+  const openEditor = (talent?: Talent) => {
+    setEditingId(talent?.id ?? null);
+    setDraft(talent ? { name: talent.name, properties: talent.properties, requirements: talent.requirements } : { name: "", properties: "", requirements: "" });
+    setAdding(true);
+  };
+  const saveTalent = () => {
+    if (!draft.name.trim()) return;
+    const talents = editingId
+      ? character.talents.map((item) => item.id === editingId ? { ...item, ...draft } : item)
+      : [...character.talents, { id: uid("talent"), ...draft, source: "talent" as const }];
+    onChange({ ...character, talents });
+    closeEditor();
+  };
   return <section className="panel talents-panel" data-tutorial="talents">
-    <div className="section-heading"><h2>Таланты и черты</h2><div className="talent-heading-actions"><Button size="xs" variant="ghost" onClick={() => setCatalogOpen(true)}><BookOpen /> Справочник</Button><Button size="icon-xs" variant="ghost" onClick={() => setAdding(true)} aria-label="Добавить талант вручную"><Plus /></Button></div></div>
+    <div className="section-heading"><h2>Таланты и черты</h2><div className="talent-heading-actions"><Button size="xs" variant="ghost" onClick={() => setCatalogOpen(true)}><BookOpen /> Справочник</Button><Button size="icon-xs" variant="ghost" onClick={() => openEditor()} aria-label="Добавить талант вручную"><Plus /></Button></div></div>
     <label className="search-field"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по названию…" /></label>
-    <div className="talent-scroll">{filtered.length === 0 ? <p className="empty-copy">Пока нет подходящих записей.</p> : <Accordion type="multiple">{filtered.map((talent) => <AccordionItem value={talent.id} key={talent.id} className="talent-card"><AccordionTrigger><span>{talent.name}<small>{talent.source === "race" ? "Расовая черта" : "Талант"}</small></span></AccordionTrigger><AccordionContent><p><strong>Свойства:</strong> {talent.properties || "—"}</p><p><strong>Требования:</strong> {talent.requirements || "—"}</p>{talent.source !== "race" && <Button size="xs" variant="ghost" onClick={() => onChange({ ...character, talents: character.talents.filter((item) => item.id !== talent.id) })}><Trash2 /> Удалить</Button>}</AccordionContent></AccordionItem>)}</Accordion>}</div>
-    <Dialog open={adding} onOpenChange={setAdding}><DialogContent className="paper-dialog"><DialogHeader><DialogTitle>Новый талант</DialogTitle><DialogDescription>Добавьте свойства и требования — длинный текст будет скрыт в карточке.</DialogDescription></DialogHeader><Field label="Название" value={draft.name} onChange={(name) => setDraft({ ...draft, name })} /><Field label="Свойства" value={draft.properties} onChange={(properties) => setDraft({ ...draft, properties })} multiline /><Field label="Требования" value={draft.requirements} onChange={(requirements) => setDraft({ ...draft, requirements })} multiline /><DialogFooter><Button variant="outline" onClick={() => setAdding(false)}>Отмена</Button><Button onClick={addTalent}>Сохранить</Button></DialogFooter></DialogContent></Dialog>
+    <div className="talent-scroll">{filtered.length === 0 ? <p className="empty-copy">Пока нет подходящих записей.</p> : <Accordion type="multiple">{filtered.map((talent) => <AccordionItem value={talent.id} key={talent.id} className="talent-card"><AccordionTrigger><span>{talent.name}<small>{talent.source === "race" ? "Расовая черта" : "Талант"}</small></span></AccordionTrigger><AccordionContent><p><strong>Свойства:</strong> {talent.properties || "—"}</p><p><strong>Требования:</strong> {talent.requirements || "—"}</p>{talent.source !== "race" && <div className="talent-card-actions"><Button size="xs" variant="ghost" onClick={() => openEditor(talent)}><Pencil /> Изменить</Button><Button size="xs" variant="ghost" onClick={() => onChange({ ...character, talents: character.talents.filter((item) => item.id !== talent.id) })}><Trash2 /> Удалить</Button></div>}</AccordionContent></AccordionItem>)}</Accordion>}</div>
+    <Dialog open={adding} onOpenChange={(open) => { if (!open) closeEditor(); }}><DialogContent className="paper-dialog"><DialogHeader><DialogTitle>{editingId ? "Изменить талант" : "Новый талант"}</DialogTitle><DialogDescription>{editingId ? "Исправьте название, свойства или требования пользовательского таланта." : "Добавьте свойства и требования — длинный текст будет скрыт в карточке."}</DialogDescription></DialogHeader><Field label="Название" value={draft.name} onChange={(name) => setDraft({ ...draft, name })} /><Field label="Свойства" value={draft.properties} onChange={(properties) => setDraft({ ...draft, properties })} multiline /><Field label="Требования" value={draft.requirements} onChange={(requirements) => setDraft({ ...draft, requirements })} multiline /><DialogFooter><Button variant="outline" onClick={closeEditor}>Отмена</Button><Button onClick={saveTalent}>Сохранить</Button></DialogFooter></DialogContent></Dialog>
     <TalentCatalogDialog open={catalogOpen} onOpenChange={setCatalogOpen} existingTalents={character.talents} onImport={(talent) => {
       const normalizedName = talent.name.toLocaleLowerCase("ru").replace(/ё/g, "е");
       const existingTalent = character.talents.find((item) => item.source !== "race" && item.name.toLocaleLowerCase("ru").replace(/ё/g, "е") === normalizedName);
@@ -287,7 +303,7 @@ export default function CharacterSheetApp() {
     // These values are persisted for export, so keep the stored snapshot in sync with its formula.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (total !== character.woundsTotal || naturalArmor !== character.naturalArmor) setCharacter((current) => ({ ...current, woundsTotal: total, naturalArmor }));
-  }, [character.characteristics, character.raceId, character.woundsTotal, character.naturalArmor, currentRace]);
+  }, [character.characteristics, character.talents, character.raceId, character.woundsTotal, character.naturalArmor, currentRace]);
   const beginNew = () => {
     setCharacter(createNewCharacter()); setPage("front");
     if (localStorage.getItem("d100-skip-tutorial") === "true") setScreen("sheet"); else setTutorialPrompt(true);
