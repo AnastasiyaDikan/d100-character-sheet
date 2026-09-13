@@ -113,6 +113,8 @@ export type Character = {
   woundsTotal: number;
   fatigueCurrent: number;
   experienceEarned: number;
+  /** Null keeps the automatic total calculated from advances; a number is a manually recorded total. */
+  experienceSpentOverride: number | null;
 };
 
 export type RaceChoice = { id: string; label: string; options: string[] };

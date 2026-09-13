@@ -228,5 +228,6 @@ export function createCharacter(): Character {
     woundsTotal: 10,
     fatigueCurrent: 0,
     experienceEarned: 0,
+    experienceSpentOverride: null,
   };
 }

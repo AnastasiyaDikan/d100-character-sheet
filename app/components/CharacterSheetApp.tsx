@@ -4,7 +4,7 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen, Check, ChevronLeft, ChevronRight, CircleHelp, Download, Feather, FileUp,
   HeartPulse, ImagePlus, Moon, Pencil, Plus, RotateCcw, Save, Search, Shield, Skull,
-  Sparkles, Trash2, UserRound, X,
+  Sparkles, Trash2, X,
 } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,7 @@ import SkillsPanel from "./SkillsPanel";
 import TalentCatalogDialog from "./TalentCatalogDialog";
 import TutorialGuide from "./TutorialGuide";
 import { CHARACTERISTICS, createCharacter, RACES } from "@/lib/character/data";
-import { bonus, carrying, characteristicValue, effectiveBonus, fatigueThreshold, movement, skillThreshold, spentExperience, supernaturalMultiplier, zoneDefense } from "@/lib/character/calculations";
+import { carrying, EXPERIENCE_COSTS, fatigueEffect, fatiguedBonus, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillThreshold, spentExperience, supernaturalMultiplier } from "@/lib/character/calculations";
 import { applyAptitudeCharacteristics, applyRace as applyRaceToCharacter, beginIndependentAptitudeDistribution, calculateNaturalArmor, calculateRaceWounds, independentAptitudeBudget } from "@/lib/character/race-engine";
 import { deleteAutosave, downloadCharacter, loadAutosave, normalizeCharacter, saveAutosave } from "@/lib/character/storage";
 import type { Armor, Character, CharacteristicId, HitZone, InventoryItem, Race, Talent, Weapon } from "@/lib/character/types";
@@ -83,7 +83,7 @@ function StartScreen({ autosave, onNew, onLoad, onRestore, onDeleteAutosave }: {
         <label className="load-button"><FileUp /> Загрузить персонажа<input type="file" accept="application/json,.json" onChange={onLoad} /></label>
       </div>
       {autosave && <div className="autosave-card"><div><span>Найдено автосохранение</span><strong>{autosave.name || "Безымянный персонаж"}</strong><time>{new Date(autosave.savedAt).toLocaleString("ru-RU")}</time></div><div className="autosave-actions"><Button size="sm" onClick={onRestore}><RotateCcw /> Восстановить</Button><Button size="icon-sm" variant="ghost" aria-label="Удалить автосохранение" onClick={onDeleteAutosave}><Trash2 /></Button></div></div>}
-      <p className="version">Character Sheet v0.5.0</p>
+      <p className="version">Character Sheet v0.6.0</p>
     </section>
   </main>;
 }
@@ -115,12 +115,14 @@ function RacePicker({ open, currentId, onOpenChange, onApply }: {
 
 function CharacteristicCard({ character, id, onChange }: { character: Character; id: CharacteristicId; onChange: (character: Character) => void }) {
   const item = character.characteristics[id];
-  const baseBonus = bonus(character, id);
+  const adjustedValue = fatiguedCharacteristicValue(character, id);
+  const adjustedBonus = fatiguedBonus(character, id);
+  const effect = fatigueEffect(character, id);
   const multiplier = supernaturalMultiplier(character, id);
   const updateItem = (patch: Partial<typeof item>) => onChange({ ...character, characteristics: { ...character.characteristics, [id]: { ...item, ...patch } } });
-  return <article className="characteristic-card"><header><span>{item.label}</span><abbr title={item.label}>{item.short}</abbr></header><div className="characteristic-body">
-    <label className="characteristic-value"><span>Значение</span><input type="number" min="0" value={item.value === 0 ? "" : item.value} placeholder="0" onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateItem({ value: event.target.value === "" ? 0 : Number(event.target.value) })} /></label>
-    <span className="bonus-pill" title={multiplier > 1 ? `Базовый бонус ${baseBonus}, сверхъестественный множитель ×${multiplier}` : undefined}>Бонус {effectiveBonus(character, id)}{multiplier > 1 ? ` (${baseBonus}×${multiplier})` : ""}</span>
+  return <article className={`characteristic-card ${effect !== "none" ? `fatigue-affected fatigue-${effect}` : ""}`}><header><span>{item.label}</span><abbr title={item.label}>{item.short}</abbr></header><div className="characteristic-body">
+    <label className="characteristic-value"><span>Значение</span><span className="characteristic-input-wrap"><input type="number" min="0" value={item.value === 0 ? "" : item.value} placeholder="0" onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateItem({ value: event.target.value === "" ? 0 : Number(event.target.value) })} />{effect !== "none" && <span className="fatigue-value-card" aria-live="polite"><small>{effect === "zero" ? "Истощение" : "Усталость"}</small><strong>{adjustedValue}</strong></span>}</span></label>
+    <span className="bonus-pill" title={effect !== "none" ? "Бонус пересчитан с учётом усталости" : multiplier > 1 ? `Сверхъестественный множитель ×${multiplier}` : undefined}>Бонус {fatiguedEffectiveBonus(character, id)}{multiplier > 1 ? ` (${adjustedBonus}×${multiplier})` : ""}</span>
     <div className="advance-vertical" aria-label={`Развитие: ${item.advances} из 5`}>{[1, 2, 3, 4, 5].map((step) => <button key={step} className={step <= item.advances ? "active" : ""} aria-label={`${step} ступень развития`} onClick={() => { const next = item.advances === step ? step - 1 : step; updateItem({ advances: next, value: Math.max(0, item.value + (next - item.advances) * 5) }); }} />)}</div>
   </div></article>;
 }
@@ -177,16 +179,10 @@ function TextList({ title, values, onChange }: { title: string; values: string[]
   </div></section>;
 }
 
-function HitMap({ character }: { character: Character }) {
-  return <section className="panel hit-map" data-tutorial="hit-map"><div className="section-heading"><h2>Карта попаданий</h2><span>БВ {bonus(character, "endurance")}</span></div><div className="hit-map-stage">
-    <UserRound className="body-silhouette" strokeWidth={1.1} aria-hidden="true" />
-    {ZONES.map((zone) => <div className={`zone-chip zone-${zone.id}`} key={zone.id}><span>{zone.short}</span><strong>{zoneDefense(character, zone.id)}</strong><small>{zone.label}</small></div>)}
-  </div><p className="formula-note"><Shield /> доспехи + естественная броня + Бонус Выносливости</p></section>;
-}
-
 function FrontPage({ character, onChange, onRaceOpen }: { character: Character; onChange: (character: Character) => void; onRaceOpen: () => void }) {
   const currentRace = RACES.find((race) => race.id === character.raceId) ?? RACES[0];
-  const spent = spentExperience(character);
+  const automaticSpent = spentExperience(character);
+  const spent = recordedSpentExperience(character);
   const aptitudeSpent = Object.values(character.aptitudes).reduce((sum, value) => sum + value, 0);
   const aptitudeBudget = character.freeAptitudes
     ? independentAptitudeBudget(currentRace)
@@ -227,7 +223,7 @@ function FrontPage({ character, onChange, onRaceOpen }: { character: Character; 
       <section className="panel counters-panel"><NumberField label="Безумие" value={character.insanity} onChange={(value) => update("insanity", value)} /><OptionalNumberField label="Порча" value={character.corruption} onChange={(value) => update("corruption", value)} /><div className="fate-pair"><NumberField label="Судьба" value={character.fateCurrent} onChange={(value) => update("fateCurrent", value)} /><span>/</span><NumberField label="Максимум" value={character.fateMax} onChange={(value) => update("fateMax", value)} /></div><NumberField label="Бездна" value={character.abyss} onChange={(value) => update("abyss", value)} /></section>
       <section className="panel front-derived-panel">
         <div className="front-stat-box"><h3>Раны</h3><div className="front-stat-fields"><NumberField label="Сейчас" value={character.woundsCurrent} onChange={(value) => update("woundsCurrent", value)} /><CalculatedNumber label="Всего" value={character.woundsTotal} /></div></div>
-        <div className="front-stat-box"><h3>Опыт</h3><NumberField label="Получено" value={character.experienceEarned} onChange={(value) => update("experienceEarned", value)} /><dl><div><dt>Потрачено</dt><dd>{spent}</dd></div><div><dt>Доступно</dt><dd className={character.experienceEarned - spent < 0 ? "negative" : ""}>{character.experienceEarned - spent}</dd></div></dl></div>
+        <div className="front-stat-box experience-box"><h3>Опыт</h3><div className="front-stat-fields"><NumberField label="Получено" value={character.experienceEarned} onChange={(value) => update("experienceEarned", value)} /><NumberField label="Потрачено" value={spent} onChange={(value) => update("experienceSpentOverride", value)} /></div><dl><div><dt>По развитию</dt><dd>{automaticSpent}</dd></div><div><dt>Доступно</dt><dd className={character.experienceEarned - spent < 0 ? "negative" : ""}>{character.experienceEarned - spent}</dd></div></dl>{character.experienceSpentOverride !== null && <button className="experience-auto-reset" onClick={() => update("experienceSpentOverride", null)} title="Снова считать потраченный опыт автоматически"><RotateCcw /> Вернуть авторасчёт</button>}</div>
         <div className="front-stat-box natural-armor-box"><h3>Естественная броня</h3><NumberField label="КД" value={character.naturalArmor} onChange={(value) => update("naturalArmor", value)} /><p className="formula-note"><Shield /> все зоны</p></div>
       </section>
       <BodyMap character={character} />
@@ -253,7 +249,8 @@ function BackPage({ character, onChange }: { character: Character; onChange: (ch
   return <div className="sheet-page back-page"><div className="back-grid"><div className="equipment-column">
     <section className="panel equipment-section"><div className="section-heading"><h2>Оружие</h2><Button size="xs" variant="ghost" onClick={addWeapon}><Plus /> Добавить</Button></div><div className="equipment-scroll">{character.weapons.length === 0 && <p className="empty-copy">Добавьте первое оружие.</p>}{character.weapons.map((weapon) => <WeaponCard key={weapon.id} weapon={weapon} onChange={(next) => update("weapons", character.weapons.map((item) => item.id === weapon.id ? next : item))} onDelete={() => update("weapons", character.weapons.filter((item) => item.id !== weapon.id))} />)}</div></section>
     <section className="panel equipment-section"><div className="section-heading"><h2>Броня</h2><Button size="xs" variant="ghost" onClick={addArmor}><Plus /> Добавить</Button></div><div className="equipment-scroll armor-scroll">{character.armor.length === 0 && <p className="empty-copy">Карта попаданий пока учитывает только Бонус Выносливости.</p>}{character.armor.map((armor) => <ArmorCard key={armor.id} armor={armor} onChange={(next) => update("armor", character.armor.map((item) => item.id === armor.id ? next : item))} onDelete={() => update("armor", character.armor.filter((item) => item.id !== armor.id))} />)}</div></section>
-    <section className="panel derived-panel"><div><h3>Движение</h3><dl><div><dt>Свободное</dt><dd>{move.free}</dd></div><div><dt>Полудействие</dt><dd>{move.halfAction}</dd></div><div><dt>Натиск</dt><dd>{move.charge}</dd></div><div><dt>Бег</dt><dd>{move.run}</dd></div></dl></div><div><h3>Носить / поднимать</h3><dl><div><dt>Носить</dt><dd>{carry.carry} кг</dd></div><div><dt>Поднимать</dt><dd>{carry.lift} кг</dd></div><div><dt>Толкать</dt><dd>{carry.push} кг</dd></div></dl></div><div><h3>Усталость</h3><div className="threshold-display"><span>Порог</span><strong>{fatigue}</strong></div><NumberField label="Сейчас" value={character.fatigueCurrent} onChange={(value) => update("fatigueCurrent", value)} /></div></section>
+    <section className="panel derived-panel"><div><h3>Движение</h3><dl><div><dt>Свободное</dt><dd>{move.free}</dd></div><div><dt>Полудействие</dt><dd>{move.halfAction}</dd></div><div><dt>Натиск</dt><dd>{move.charge}</dd></div><div><dt>Бег</dt><dd>{move.run}</dd></div></dl></div><div><h3>Носить / поднимать</h3><dl><div><dt>Носить</dt><dd>{carry.carry} кг</dd></div><div><dt>Поднимать</dt><dd>{carry.lift} кг</dd></div><div><dt>Толкать</dt><dd>{carry.push} кг</dd></div></dl></div><div><h3>Усталость</h3><div className="threshold-display"><span>Порог</span><strong>{fatigue}</strong></div><NumberField label="Сейчас" value={character.fatigueCurrent} onChange={(value) => update("fatigueCurrent", value)} /><p className="fatigue-rule-note">При достижении обычного бонуса характеристика уменьшается вдвое, при двойном значении — до 0.</p></div></section>
+    <section className="panel experience-cost-panel"><div className="section-heading"><h2>Стоимость развития за опыт</h2><span>ступень покупки</span></div><table><thead><tr><th>Склонности</th>{[1, 2, 3, 4, 5].map((step) => <th key={step}>{step}</th>)}</tr></thead><tbody><tr><th>Две точки</th>{EXPERIENCE_COSTS.twoAptitudes.map((cost, index) => <td key={index}>{cost}</td>)}</tr><tr><th>Одна точка</th>{EXPERIENCE_COSTS.oneAptitude.map((cost, index) => <td key={index}>{cost}</td>)}</tr><tr><th>Без точек</th>{EXPERIENCE_COSTS.noAptitudes.map((cost, index) => <td key={index}>{cost}</td>)}</tr></tbody></table></section>
   </div><section className="panel inventory-panel"><div className="section-heading"><h2>Инвентарь</h2><Button size="xs" variant="ghost" onClick={addInventory}><Plus /> Строка</Button></div><div className="inventory-head"><span>Название</span><span>Стоимость</span><span>Свойства</span><span /></div><div className="inventory-scroll">{character.inventory.map((item: InventoryItem) => <div className="inventory-row" key={item.id}><input value={item.name} onChange={(event) => update("inventory", character.inventory.map((current) => current.id === item.id ? { ...current, name: event.target.value } : current))} /><input value={item.cost} onChange={(event) => update("inventory", character.inventory.map((current) => current.id === item.id ? { ...current, cost: event.target.value } : current))} /><input value={item.properties} onChange={(event) => update("inventory", character.inventory.map((current) => current.id === item.id ? { ...current, properties: event.target.value } : current))} /><button onClick={() => update("inventory", character.inventory.filter((current) => current.id !== item.id))}><Trash2 /></button></div>)}</div></section></div></div>;
 }
 

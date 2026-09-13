@@ -63,6 +63,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     fateCurrent: raw.fateCurrent ?? legacyFate,
     fateMax: raw.fateMax ?? legacyFate,
     corruption: raw.corruption ?? null,
+    experienceSpentOverride: raw.experienceSpentOverride ?? null,
     weapons: raw.weapons ?? [],
   };
   if ((raw.dataRevision ?? 0) >= 3) return merged;

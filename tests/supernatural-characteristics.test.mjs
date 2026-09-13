@@ -6,7 +6,7 @@ async function loadRules() {
   const entry = `
     export { createCharacter, RACES } from ${JSON.stringify(new URL("../lib/character/data.ts", import.meta.url).pathname)};
     export { applyRace, calculateNaturalArmor, calculateRaceWounds } from ${JSON.stringify(new URL("../lib/character/race-engine.ts", import.meta.url).pathname)};
-    export { carrying, effectiveBonus, fatigueThreshold, movement, skillThreshold, supernaturalMultiplier, zoneDefense } from ${JSON.stringify(new URL("../lib/character/calculations.ts", import.meta.url).pathname)};
+    export { carrying, effectiveBonus, experienceCost, fatigueEffect, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillThreshold, spentExperience, supernaturalMultiplier, zoneDefense } from ${JSON.stringify(new URL("../lib/character/calculations.ts", import.meta.url).pathname)};
   `;
   const result = await build({ stdin: { contents: entry, loader: "ts", resolveDir: process.cwd() }, bundle: true, platform: "node", format: "esm", write: false });
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
@@ -73,4 +73,44 @@ test("uses the greatest supernatural multiplier instead of stacking talents", as
     talents: [talent("Сверхъестественная сила (2)"), talent("Сверхъестественная сила (4)")],
   };
   assert.equal(rules.supernaturalMultiplier(character, "strength"), 4);
+});
+
+test("fatigue halves and then nullifies characteristics using the ordinary bonus", async () => {
+  const rules = await loadRules();
+  const race = rules.RACES.find((item) => item.id === "human");
+  const base = rules.applyRace(rules.createCharacter(), race, {});
+  const makeCharacter = (fatigueCurrent) => ({
+    ...base,
+    fatigueCurrent,
+    characteristics: Object.fromEntries(Object.entries(base.characteristics).map(([id, item]) => [id, { ...item, value: 20 }])),
+    talents: [talent("Сверхъестественная Навык рукопашной (3)")],
+    skills: [...base.skills, { id: "melee-test", label: "Проверка рукопашной", characteristic: "melee", level: 1 }],
+  });
+
+  const tired = makeCharacter(2);
+  assert.equal(rules.fatigueEffect(tired, "melee"), "halved");
+  assert.equal(rules.fatiguedCharacteristicValue(tired, "melee"), 10);
+  assert.equal(rules.fatiguedEffectiveBonus(tired, "melee"), 3);
+  assert.equal(rules.skillThreshold(tired, "melee-test"), 13);
+  assert.equal(rules.zoneDefense(tired, "body"), 1);
+  assert.deepEqual(rules.movement(tired), { free: 1, halfAction: 2, charge: 3, run: 6 });
+  assert.equal(rules.fatigueThreshold(tired), 4, "the fatigue threshold itself must not fall");
+  assert.equal(rules.calculateRaceWounds(tired, race), 8, "wounds must keep using unpenalized bonuses");
+
+  const exhausted = makeCharacter(4);
+  assert.equal(rules.fatigueEffect(exhausted, "melee"), "zero");
+  assert.equal(rules.fatiguedCharacteristicValue(exhausted, "melee"), 0);
+  assert.equal(rules.skillThreshold(exhausted, "melee-test"), 0);
+  assert.deepEqual(rules.movement(exhausted), { free: 0.5, halfAction: 1, charge: 2, run: 3 });
+});
+
+test("uses the requested experience price table and permits a manual spent total", async () => {
+  const rules = await loadRules();
+  assert.deepEqual([1, 2, 3, 4, 5].map((step) => rules.experienceCost(2, step)), [100, 200, 400, 800, 1600]);
+  assert.deepEqual([1, 2, 3, 4, 5].map((step) => rules.experienceCost(1, step)), [250, 500, 1000, 2000, 4000]);
+  assert.deepEqual([1, 2, 3, 4, 5].map((step) => rules.experienceCost(0, step)), [500, 1000, 2000, 4000, 8000]);
+
+  const base = rules.createCharacter();
+  assert.equal(rules.recordedSpentExperience(base), rules.spentExperience(base));
+  assert.equal(rules.recordedSpentExperience({ ...base, experienceSpentOverride: 1375 }), 1375);
 });
