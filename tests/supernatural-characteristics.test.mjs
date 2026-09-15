@@ -6,9 +6,10 @@ async function loadRules() {
   const entry = `
     export { createCharacter, RACES } from ${JSON.stringify(new URL("../lib/character/data.ts", import.meta.url).pathname)};
     export { applyRace, calculateNaturalArmor, calculateRaceWounds } from ${JSON.stringify(new URL("../lib/character/race-engine.ts", import.meta.url).pathname)};
-    export { carrying, effectiveBonus, experienceCost, fatigueEffect, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillThreshold, spentExperience, supernaturalMultiplier, zoneDefense } from ${JSON.stringify(new URL("../lib/character/calculations.ts", import.meta.url).pathname)};
+    export { carrying, effectiveBonus, experienceCost, fatigueEffect, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillModifier, skillThreshold, spentExperience, supernaturalMultiplier, zoneDefense } from ${JSON.stringify(new URL("../lib/character/calculations.ts", import.meta.url).pathname)};
     export { COMBAT_ACTIONS, combatActionValues, selectedCombatRank } from ${JSON.stringify(new URL("../lib/character/combat.ts", import.meta.url).pathname)};
     export { normalizeCharacter } from ${JSON.stringify(new URL("../lib/character/storage.ts", import.meta.url).pathname)};
+    export { DICE_SIDES, rollDie } from ${JSON.stringify(new URL("../lib/character/dice.ts", import.meta.url).pathname)};
   `;
   const result = await build({ stdin: { contents: entry, loader: "ts", resolveDir: process.cwd() }, bundle: true, platform: "node", format: "esm", write: false });
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
@@ -153,4 +154,40 @@ test("adds combat defaults to old saves and preserves valid combat choices", asy
   assert.deepEqual(rules.normalizeCharacter(legacy).combatSettings, base.combatSettings);
   const configured = { ...base, combatSettings: { ...base.combatSettings, expert: true, parryRank: 5, shieldEnabled: true, shieldBonus: 12 } };
   assert.deepEqual(rules.normalizeCharacter(configured).combatSettings, configured.combatSettings);
+});
+
+test("prices the +40 skill rank as the first purchase", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  const withAptitudes = { ...base, aptitudes: { ...base.aptitudes, agility: 2 } };
+  const atThirty = { ...withAptitudes, skills: withAptitudes.skills.map((skill) => skill.id === "dodge" ? { ...skill, level: 4 } : skill) };
+  const atForty = { ...withAptitudes, skills: withAptitudes.skills.map((skill) => skill.id === "dodge" ? { ...skill, level: 5 } : skill) };
+  assert.equal(rules.skillModifier(5), 40);
+  assert.equal(rules.skillThreshold({ ...atForty, characteristics: { ...atForty.characteristics, agility: { ...atForty.characteristics.agility, value: 30 } } }, "dodge"), 73);
+  assert.equal(rules.spentExperience(atForty) - rules.spentExperience(atThirty), 100);
+});
+
+test("counterattack uses melee, Expert, Shoulder to Shoulder and the -20 penalty", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  const counterattack = rules.COMBAT_ACTIONS.find((action) => action.id === "counterattack");
+  const character = {
+    ...base,
+    characteristics: { ...base.characteristics, melee: { ...base.characteristics.melee, value: 70 } },
+    combatSettings: { ...base.combatSettings, counterattack: true, expert: true, shoulderToShoulder: 20, frenzy: true },
+  };
+  assert.equal(counterattack.requiresCounterattack, true);
+  assert.equal(rules.combatActionValues(character, counterattack)[0].value, 80);
+});
+
+test("rolls every supported polyhedral die inside its range", async () => {
+  const rules = await loadRules();
+  assert.deepEqual([...rules.DICE_SIDES], [4, 6, 8, 10, 12, 20, 100]);
+  for (const sides of rules.DICE_SIDES) {
+    for (let index = 0; index < 100; index += 1) {
+      const result = rules.rollDie(sides);
+      assert.equal(Number.isInteger(result), true);
+      assert.ok(result >= 1 && result <= sides, `d${sides} returned ${result}`);
+    }
+  }
 });

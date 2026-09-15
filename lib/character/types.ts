@@ -75,6 +75,7 @@ export type CombatSettings = {
   shoulderToShoulder: 0 | 10 | 20;
   berserkerCharge: boolean;
   frenzy: boolean;
+  counterattack: boolean;
   /** Null means: keep following the matching skill on the main sheet. */
   parryRank: CombatSkillRank | null;
   /** Null means: keep following the matching skill on the main sheet. */

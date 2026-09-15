@@ -91,7 +91,7 @@ export function fatiguedEffectiveBonus(character: Character, id: CharacteristicI
 }
 
 export function skillModifier(level: number) {
-  return [-20, 0, 10, 20, 30][Math.max(0, Math.min(4, level))];
+  return [-20, 0, 10, 20, 30, 40][Math.max(0, Math.min(5, level))];
 }
 
 export function skillThreshold(character: Character, skillId: string) {
@@ -118,7 +118,7 @@ export function spentExperience(character: Character) {
   }, 0);
 
   const skillXp = character.skills.reduce((sum, skill) => {
-    return sum + Array.from({ length: skill.level }, (_, index) => experienceCost(character.aptitudes[skill.characteristic], index + 1))
+    return sum + Array.from({ length: skill.level }, (_, index) => experienceCost(character.aptitudes[skill.characteristic], index === 4 ? 1 : index + 1))
       .reduce((acc, cost) => acc + cost, 0);
   }, 0);
 

@@ -36,6 +36,7 @@ export default function CombatActionsDialog({ character, onChange }: { character
   const [open, setOpen] = useState(false);
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
   const settings = character.combatSettings;
+  const actions = COMBAT_ACTIONS.filter((action) => !action.requiresCounterattack || settings.counterattack);
   const update = (patch: Partial<CombatSettings>) => onChange({ ...character, combatSettings: { ...settings, ...patch } });
   const showDescription = (event: MouseEvent, text: string) => setTooltip({
     text,
@@ -55,13 +56,14 @@ export default function CombatActionsDialog({ character, onChange }: { character
             <Toggle checked={settings.shoulderToShoulder === 20} onChange={(checked) => update({ shoulderToShoulder: checked ? 20 : 0 })}><strong>Плечом к Плечу</strong><small>+20: рядом соратник с этим талантом</small></Toggle>
             <Toggle checked={settings.berserkerCharge} onChange={(berserkerCharge) => update({ berserkerCharge })}><strong>Натиск Берсерка</strong><small>+30 к значению Натиска</small></Toggle>
             <Toggle checked={settings.frenzy} onChange={(frenzy) => update({ frenzy })}><strong>Неистовство</strong><small>+10 к любой атаке и парированию оружием</small></Toggle>
-            <RankSelector title="Парирование" skillId="parry" character={character} onChange={(parryRank) => update({ parryRank })} />
+            <Toggle checked={settings.counterattack} onChange={(counterattack) => update({ counterattack })}><strong>Контратака</strong><small>показать реакцию после успешного Парирования</small></Toggle>
             <div className="shield-setting"><Toggle checked={settings.shieldEnabled} onChange={(shieldEnabled) => update({ shieldEnabled })}><strong>Щит</strong><small>добавить его бонус к Парированию</small></Toggle><label><span>Бонус</span><input type="number" min="0" value={settings.shieldBonus === 0 ? "" : settings.shieldBonus} placeholder="0" disabled={!settings.shieldEnabled} onFocus={(event) => event.currentTarget.select()} onChange={(event) => update({ shieldBonus: event.target.value === "" ? 0 : Number(event.target.value) })} /></label></div>
+            <RankSelector title="Парирование" skillId="parry" character={character} onChange={(parryRank) => update({ parryRank })} />
             <RankSelector title="Уклонение" skillId="dodge" character={character} onChange={(dodgeRank) => update({ dodgeRank })} />
           </section>
 
           <section className="combat-table-wrap" aria-label="Таблица боевых действий">
-            <table className="combat-actions-table"><thead><tr><th>Действие</th><th>Тип</th><th>Подтип</th><th>Характеристика</th></tr></thead><tbody>{COMBAT_ACTIONS.map((action) => {
+            <table className="combat-actions-table"><thead><tr><th>Действие</th><th>Тип</th><th>Подтип</th><th>Характеристика</th></tr></thead><tbody>{actions.map((action) => {
               const values = combatActionValues(character, action);
               return <tr key={action.id} onMouseMove={(event) => showDescription(event, action.description)} onMouseLeave={() => setTooltip(null)}>
                 <th><span>{action.action}</span><Info aria-hidden="true" /></th><td>{action.type}</td><td>{action.subtype}</td><td><div className="combat-values">{values.map((item) => item.value === null ? <span key={item.label} className="combat-value empty" title={item.explanation}>{item.label}</span> : <span key={item.label} className="combat-value" title={item.explanation}><small>{item.label}</small><strong>{item.value}</strong></span>)}</div></td>

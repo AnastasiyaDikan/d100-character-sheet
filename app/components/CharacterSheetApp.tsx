@@ -15,6 +15,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import AvatarEditor from "./AvatarEditor";
 import BodyMap from "./BodyMap";
 import CombatActionsDialog from "./CombatActionsDialog";
+import DiceRoller from "./DiceRoller";
 import SkillsPanel from "./SkillsPanel";
 import TalentCatalogDialog from "./TalentCatalogDialog";
 import TutorialGuide from "./TutorialGuide";
@@ -24,7 +25,7 @@ import { applyAptitudeCharacteristics, applyRace as applyRaceToCharacter, beginI
 import { deleteAutosave, downloadCharacter, loadAutosave, normalizeCharacter, saveAutosave } from "@/lib/character/storage";
 import type { Armor, Character, CharacteristicId, HitZone, InventoryItem, Race, Talent, Weapon } from "@/lib/character/types";
 
-const SKILL_LEVELS = ["Know", "+10", "+20", "+30"];
+const SKILL_LEVELS = ["Know", "+10", "+20", "+30", "+40"];
 const ZONES: Array<{ id: HitZone; short: string; label: string }> = [
   { id: "head", short: "Г", label: "Голова" },
   { id: "rightArm", short: "ПР", label: "Правая рука" },
@@ -39,7 +40,7 @@ const TUTORIAL = [
   ["race", "Выбор расы", "Нажмите на расу: откроется справочник с описаниями, склонностями и расовыми выборами."],
   ["aptitudes", "Склонности", "Они определяют стоимость развития характеристик и связанных с ними навыков."],
   ["characteristics", "Характеристики", "Отображают развитие персонажа, каждый кружочек увеличивает характеристику на +5."],
-  ["skills", "Навыки", "Ступени Know, +10, +20 и +30 описывают уровень владения навыком. Развитие всегда последовательное."],
+  ["skills", "Навыки", "Ступени Know, +10, +20, +30 и +40 описывают уровень владения навыком. Ступень +40 стоит как первая покупка навыка."],
   ["talents", "Таланты и черты", "Здесь можно внести таланты и черты персонажа."],
   ["hit-map", "Карта попаданий", "Защита зоны считается из доспехов, естественной брони и Бонуса Выносливости."],
   ["flip", "Оборотная сторона", "Переверните лист кнопкой у правого края, чтобы открыть снаряжение и расчёты."],
@@ -84,7 +85,7 @@ function StartScreen({ autosave, onNew, onLoad, onRestore, onDeleteAutosave }: {
         <label className="load-button"><FileUp /> Загрузить персонажа<input type="file" accept="application/json,.json" onChange={onLoad} /></label>
       </div>
       {autosave && <div className="autosave-card"><div><span>Найдено автосохранение</span><strong>{autosave.name || "Безымянный персонаж"}</strong><time>{new Date(autosave.savedAt).toLocaleString("ru-RU")}</time></div><div className="autosave-actions"><Button size="sm" onClick={onRestore}><RotateCcw /> Восстановить</Button><Button size="icon-sm" variant="ghost" aria-label="Удалить автосохранение" onClick={onDeleteAutosave}><Trash2 /></Button></div></div>}
-      <p className="version">Character Sheet v0.7.0</p>
+      <p className="version">Character Sheet v0.8.0</p>
     </section>
   </main>;
 }
@@ -341,6 +342,7 @@ export default function CharacterSheetApp() {
   return <main className="workspace-shell">
     <header className="toolbar"><Button variant="ghost" size="sm" onClick={() => setScreen("start")}><BookOpen /> Главное меню</Button><span className="toolbar-divider" /><span className="character-title">{character.name || "Безымянный персонаж"} <small>· {currentRace.name}</small></span><div className="toolbar-actions"><span className="save-status"><Save /> {lastSavedAt ? `Автосохранено ${new Date(lastSavedAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "Сохранение…"}</span><Button data-tutorial="save" variant="outline" size="sm" onClick={() => downloadCharacter(character)}><Download /> Сохранить JSON</Button><label className="toolbar-load"><FileUp /><span>Загрузить</span><input type="file" accept="application/json,.json" onChange={loadJson} /></label><Button size="icon-sm" variant="ghost" aria-label="Открыть обучение" onClick={() => { setPage("front"); setTutorialStep(0); }}><CircleHelp /></Button></div></header>
     <div className={`sheet-scene book-scene ${page === "back" ? "show-back" : ""} ${isTurning ? "turning" : ""}`}><div className="book-cover" aria-hidden="true" /><div className="sheet-paper">{page === "front" ? <FrontPage character={character} onChange={setCharacter} onRaceOpen={() => setRaceOpen(true)} /> : <BackPage character={character} onChange={setCharacter} />}<button className="page-turn" data-tutorial="flip" onClick={turnPage} aria-label={page === "front" ? "Открыть оборотную сторону" : "Вернуться на лицевую сторону"}>{page === "front" ? <ChevronRight /> : <ChevronLeft />}<span>{page === "front" ? "Оборот" : "Лицевая"}</span></button>{isTurning && <div className="turning-leaf" aria-hidden="true"><div className="leaf-front" /><div className="leaf-back" /></div>}</div></div>
+    <DiceRoller />
     <button className="breakthrough-button" onClick={() => setBreakthroughsOpen(true)}><Moon /><span>Прорывы</span><strong>{character.breakthroughs.length}</strong></button>
     <RacePicker key={`${character.raceId}-${raceOpen}`} open={raceOpen} currentId={character.raceId} onOpenChange={setRaceOpen} onApply={applyRace} />
     <Sheet open={breakthroughsOpen} onOpenChange={setBreakthroughsOpen}><SheetContent className="breakthrough-sheet"><SheetHeader><SheetTitle>Прорывы</SheetTitle><SheetDescription>Краткие записи о каждом прорыве персонажа.</SheetDescription></SheetHeader><div className="breakthrough-list">{character.breakthroughs.map((item) => <article key={item.id}><header><strong>№ {item.number}</strong><button onClick={() => setCharacter({ ...character, breakthroughs: character.breakthroughs.filter((current) => current.id !== item.id) })}><Trash2 /></button></header><textarea value={item.description} onChange={(event) => setCharacter({ ...character, breakthroughs: character.breakthroughs.map((current) => current.id === item.id ? { ...current, description: event.target.value } : current) })} placeholder="Описание…" /></article>)}</div><Button onClick={() => setCharacter({ ...character, breakthroughs: [...character.breakthroughs, { id: uid("breakthrough"), number: character.breakthroughs.length + 1, description: "" }] })}><Plus /> Добавить прорыв</Button></SheetContent></Sheet>

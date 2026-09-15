@@ -185,7 +185,7 @@ export function createCharacter(): Character {
 
   return {
     formatVersion: 1,
-    dataRevision: 5,
+    dataRevision: 6,
     characterId: globalThis.crypto?.randomUUID?.() ?? `character-${Date.now()}`,
     savedAt: now,
     name: "Новый персонаж",
@@ -232,6 +232,7 @@ export function createCharacter(): Character {
       shoulderToShoulder: 0,
       berserkerCharge: false,
       frenzy: false,
+      counterattack: false,
       parryRank: null,
       dodgeRank: null,
       shieldEnabled: false,

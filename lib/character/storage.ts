@@ -57,7 +57,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     ...raw,
     raceId,
     raceChoices,
-    dataRevision: 5,
+    dataRevision: 6,
     avatarCrop: raw.avatarCrop ?? base.avatarCrop,
     characteristics: { ...base.characteristics, ...(raw.characteristics ?? {}) },
     aptitudes: { ...base.aptitudes, ...(raw.aptitudes ?? {}) },
@@ -75,6 +75,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
       shoulderToShoulder: rawCombat?.shoulderToShoulder === 10 || rawCombat?.shoulderToShoulder === 20 ? rawCombat.shoulderToShoulder : 0,
       berserkerCharge: rawCombat?.berserkerCharge === true,
       frenzy: rawCombat?.frenzy === true,
+      counterattack: rawCombat?.counterattack === true,
       parryRank: normalizeRank(rawCombat?.parryRank),
       dodgeRank: normalizeRank(rawCombat?.dodgeRank),
       shieldEnabled: rawCombat?.shieldEnabled === true,
@@ -92,7 +93,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     const advances = legacy?.advances ?? 0;
     return [id, { ...value, advances, value: value.value + advances * 5 }];
   })) as Character["characteristics"];
-  const withProgress = { ...migrated, characteristics, dataRevision: 5 as const };
+  const withProgress = { ...migrated, characteristics, dataRevision: 6 as const };
   const woundsTotal = calculateRaceWounds(withProgress, race);
   return { ...withProgress, woundsTotal, woundsCurrent: woundsTotal };
 }

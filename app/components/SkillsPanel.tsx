@@ -5,10 +5,10 @@ import { Plus, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { fatigueEffect, skillThreshold } from "@/lib/character/calculations";
+import { experienceCost, fatigueEffect, skillThreshold } from "@/lib/character/calculations";
 import type { Character, Skill } from "@/lib/character/types";
 
-const LEVELS = ["Know", "+10", "+20", "+30"];
+const LEVELS = ["Know", "+10", "+20", "+30", "+40"];
 const EXPANDABLE = new Set(["common-lore", "forbidden-lore", "linguistics", "scholastic-lore", "trade"]);
 
 export default function SkillsPanel({ character, onChange }: { character: Character; onChange: (character: Character) => void }) {
@@ -59,7 +59,7 @@ export default function SkillsPanel({ character, onChange }: { character: Charac
         <thead><tr><th>Навык</th>{LEVELS.map((level) => <th key={level}>{level}</th>)}</tr></thead>
         <tbody>{filtered.map((skill) => <tr key={skill.id} className={`${skill.custom ? "custom-skill" : ""} ${fatigueEffect(character, skill.characteristic) !== "none" ? "fatigue-affected-skill" : ""}`}>
           <td><div className="skill-name-cell">{editingSkillId === skill.id ? <input className="skill-name-edit" autoFocus value={editingLabel} onChange={(event) => setEditingLabel(event.target.value)} onBlur={() => saveEditedLabel(skill.id)} onKeyDown={(event) => { if (event.key === "Enter") saveEditedLabel(skill.id); if (event.key === "Escape") setEditingSkillId(null); }} /> : <Popover open={activeSkillId === skill.id} onOpenChange={(open) => setActiveSkillId(open ? skill.id : null)}><PopoverTrigger asChild><button className="skill-name" onDoubleClick={() => { if (skill.custom) { setEditingSkillId(skill.id); setEditingLabel(skill.label); setActiveSkillId(null); } }}>{skill.label} <small>({character.characteristics[skill.characteristic].short})</small></button></PopoverTrigger><PopoverContent side="left" align="center" sideOffset={8} className="skill-threshold-popup"><span>{fatigueEffect(character, skill.characteristic) !== "none" ? "Порог с усталостью" : "Порог проверки"}</span><strong>{skillThreshold(character, skill.id)}</strong><small>{skill.label}</small></PopoverContent></Popover>}{EXPANDABLE.has(skill.id) && <button className="skill-add" title="Добавить специализацию" onClick={() => setParent(skill)}><Plus /></button>}{skill.custom && <button className="skill-delete" title="Удалить навык" onClick={() => onChange({ ...character, skills: character.skills.filter((item) => item.id !== skill.id) })}><Trash2 /></button>}</div></td>
-          {LEVELS.map((level, index) => <td key={level}><button className={`skill-box ${skill.level >= index + 1 ? "active" : ""}`} aria-label={`${skill.label}: ${level}`} onClick={() => setLevel(skill.id, index + 1)} /></td>)}
+          {LEVELS.map((level, index) => <td key={level}><button className={`skill-box ${skill.level >= index + 1 ? "active" : ""}`} aria-label={`${skill.label}: ${level}`} title={index === 4 ? `Стоимость +40: ${experienceCost(character.aptitudes[skill.characteristic], 1)} опыта` : undefined} onClick={() => setLevel(skill.id, index + 1)} /></td>)}
         </tr>)}</tbody>
       </table>
       {filtered.length === 0 && <p className="empty-copy">Навык не найден.</p>}

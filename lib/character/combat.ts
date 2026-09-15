@@ -1,7 +1,7 @@
 import { fatiguedCharacteristicValue, fatiguedEffectiveBonus } from "./calculations";
 import type { Character, CharacteristicId, CombatSkillRank } from "./types";
 
-export type CombatCheckKind = "none" | "melee" | "shooting" | "both" | "parry" | "dodge" | "strength" | "skill";
+export type CombatCheckKind = "none" | "melee" | "shooting" | "both" | "parry" | "dodge" | "strength" | "skill" | "counterattack";
 
 export type CombatAction = {
   id: string;
@@ -10,6 +10,7 @@ export type CombatAction = {
   subtype: string;
   description: string;
   check: CombatCheckKind;
+  requiresCounterattack?: boolean;
 };
 
 export type CombatActionValue = {
@@ -38,6 +39,7 @@ export const COMBAT_ACTIONS: CombatAction[] = [
   { id: "knock-down", action: "Сбить с ног", type: "Полу", subtype: "Атака, Рукопашная", description: "Используется как часть Натиска или сразу после полудействия движения. Встречная проверка Силы с +10; при успехе цель сбита с ног. Две и более степени успеха наносят цели урон 1к5-3 + БС и один уровень Усталости; при провале с разницей в две и более степени успеха атакующий сбит с ног.", check: "strength" },
   { id: "standard-attack", action: "Стандартная атака", type: "Полу", subtype: "Атака любая", description: "+10 НР или НС; сделать одну атаку в ближнем или дальнем бою.", check: "both" },
   { id: "feint", action: "Финт", type: "Полу", subtype: "Рукопашная", description: "Встречная проверка НР; если персонаж выиграл, от его следующей атаки нельзя увернуться или парировать её.", check: "melee" },
+  { id: "counterattack", action: "Контратака", type: "Реакция при удачном парировании", subtype: "Рукопашная", description: "После успешного Парирования персонаж немедленно совершает ответную рукопашную атаку со штрафом -20.", check: "counterattack", requiresCounterattack: true },
 ];
 
 export const COMBAT_RANK_LABELS = ["Know", "+10", "+20", "+30", "+40"] as const;
@@ -85,6 +87,16 @@ function attackValue(character: Character, id: "melee" | "shooting", charge = fa
 }
 
 export function combatActionValues(character: Character, action: CombatAction): CombatActionValue[] {
+  if (action.check === "counterattack") {
+    const characteristic = fatiguedCharacteristicValue(character, "melee");
+    const expert = character.combatSettings.expert ? 10 : 0;
+    const shoulder = character.combatSettings.shoulderToShoulder;
+    return [{
+      label: "НР",
+      value: characteristic + expert + shoulder - 20,
+      explanation: [`НР ${characteristic}`, expert ? "Эксперт +10" : "", shoulder ? `Плечом к Плечу +${shoulder}` : "", "Контратака -20"].filter(Boolean).join("; "),
+    }];
+  }
   if (action.check === "melee") return [attackValue(character, "melee", action.id === "charge")];
   if (action.check === "shooting") return [attackValue(character, "shooting")];
   if (action.check === "both") return [attackValue(character, "melee"), attackValue(character, "shooting")];
