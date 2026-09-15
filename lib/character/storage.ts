@@ -41,6 +41,12 @@ export async function loadAutosave(): Promise<Character | null> {
 
 export function normalizeCharacter(raw: Character & { fate?: number }): Character {
   const base = createCharacter();
+  const rawCombat = raw.combatSettings as Partial<Character["combatSettings"]> | undefined;
+  const normalizeRank = (value: unknown): Character["combatSettings"]["parryRank"] => (
+    Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 5
+      ? Number(value) as Character["combatSettings"]["parryRank"]
+      : null
+  );
   const legacyFate = typeof raw.fate === "number" ? raw.fate : base.fateCurrent;
   const raceId = raw.raceId === "kobold" ? "kobold-hunter" : raw.raceId;
   const raceChoices = raw.raceId === "kobold"
@@ -51,7 +57,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     ...raw,
     raceId,
     raceChoices,
-    dataRevision: 4,
+    dataRevision: 5,
     avatarCrop: raw.avatarCrop ?? base.avatarCrop,
     characteristics: { ...base.characteristics, ...(raw.characteristics ?? {}) },
     aptitudes: { ...base.aptitudes, ...(raw.aptitudes ?? {}) },
@@ -64,6 +70,16 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     fateMax: raw.fateMax ?? legacyFate,
     corruption: raw.corruption ?? null,
     experienceSpentOverride: raw.experienceSpentOverride ?? null,
+    combatSettings: {
+      expert: rawCombat?.expert === true,
+      shoulderToShoulder: rawCombat?.shoulderToShoulder === 10 || rawCombat?.shoulderToShoulder === 20 ? rawCombat.shoulderToShoulder : 0,
+      berserkerCharge: rawCombat?.berserkerCharge === true,
+      frenzy: rawCombat?.frenzy === true,
+      parryRank: normalizeRank(rawCombat?.parryRank),
+      dodgeRank: normalizeRank(rawCombat?.dodgeRank),
+      shieldEnabled: rawCombat?.shieldEnabled === true,
+      shieldBonus: Number.isFinite(Number(rawCombat?.shieldBonus)) ? Math.max(0, Number(rawCombat?.shieldBonus)) : 0,
+    },
     weapons: raw.weapons ?? [],
   };
   if ((raw.dataRevision ?? 0) >= 3) return merged;
@@ -76,7 +92,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     const advances = legacy?.advances ?? 0;
     return [id, { ...value, advances, value: value.value + advances * 5 }];
   })) as Character["characteristics"];
-  const withProgress = { ...migrated, characteristics, dataRevision: 4 as const };
+  const withProgress = { ...migrated, characteristics, dataRevision: 5 as const };
   const woundsTotal = calculateRaceWounds(withProgress, race);
   return { ...withProgress, woundsTotal, woundsCurrent: woundsTotal };
 }

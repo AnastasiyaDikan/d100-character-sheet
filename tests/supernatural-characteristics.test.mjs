@@ -7,6 +7,8 @@ async function loadRules() {
     export { createCharacter, RACES } from ${JSON.stringify(new URL("../lib/character/data.ts", import.meta.url).pathname)};
     export { applyRace, calculateNaturalArmor, calculateRaceWounds } from ${JSON.stringify(new URL("../lib/character/race-engine.ts", import.meta.url).pathname)};
     export { carrying, effectiveBonus, experienceCost, fatigueEffect, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillThreshold, spentExperience, supernaturalMultiplier, zoneDefense } from ${JSON.stringify(new URL("../lib/character/calculations.ts", import.meta.url).pathname)};
+    export { COMBAT_ACTIONS, combatActionValues, selectedCombatRank } from ${JSON.stringify(new URL("../lib/character/combat.ts", import.meta.url).pathname)};
+    export { normalizeCharacter } from ${JSON.stringify(new URL("../lib/character/storage.ts", import.meta.url).pathname)};
   `;
   const result = await build({ stdin: { contents: entry, loader: "ts", resolveDir: process.cwd() }, bundle: true, platform: "node", format: "esm", write: false });
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
@@ -113,4 +115,42 @@ test("uses the requested experience price table and permits a manual spent total
   const base = rules.createCharacter();
   assert.equal(rules.recordedSpentExperience(base), rules.spentExperience(base));
   assert.equal(rules.recordedSpentExperience({ ...base, experienceSpentOverride: 1375 }), 1375);
+});
+
+test("calculates combat actions from the current characteristics and saved modifiers", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  const standardAttack = rules.COMBAT_ACTIONS.find((action) => action.id === "standard-attack");
+  const withMelee = {
+    ...base,
+    characteristics: { ...base.characteristics, melee: { ...base.characteristics.melee, value: 70 } },
+  };
+
+  assert.equal(rules.combatActionValues(withMelee, standardAttack)[0].value, 77);
+  const expert = { ...withMelee, combatSettings: { ...withMelee.combatSettings, expert: true } };
+  assert.equal(rules.combatActionValues(expert, standardAttack)[0].value, 87);
+  assert.equal(rules.combatActionValues({ ...expert, combatSettings: { ...expert.combatSettings, shoulderToShoulder: 10 } }, standardAttack)[0].value, 97);
+  assert.equal(rules.combatActionValues({ ...expert, combatSettings: { ...expert.combatSettings, shoulderToShoulder: 20 } }, standardAttack)[0].value, 107);
+});
+
+test("copies parry and dodge ranks from the sheet but allows combat overrides", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  const trained = {
+    ...base,
+    skills: base.skills.map((skill) => skill.id === "parry" ? { ...skill, level: 3 } : skill.id === "dodge" ? { ...skill, level: 2 } : skill),
+  };
+  assert.equal(rules.selectedCombatRank(trained, "parry"), 3);
+  assert.equal(rules.selectedCombatRank(trained, "dodge"), 2);
+  assert.equal(rules.selectedCombatRank({ ...trained, combatSettings: { ...trained.combatSettings, parryRank: 5 } }, "parry"), 5);
+});
+
+test("adds combat defaults to old saves and preserves valid combat choices", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  const legacy = { ...base };
+  delete legacy.combatSettings;
+  assert.deepEqual(rules.normalizeCharacter(legacy).combatSettings, base.combatSettings);
+  const configured = { ...base, combatSettings: { ...base.combatSettings, expert: true, parryRank: 5, shieldEnabled: true, shieldBonus: 12 } };
+  assert.deepEqual(rules.normalizeCharacter(configured).combatSettings, configured.combatSettings);
 });

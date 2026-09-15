@@ -68,6 +68,21 @@ export type InventoryItem = {
 
 export type Breakthrough = { id: string; number: number; description: string };
 
+export type CombatSkillRank = 0 | 1 | 2 | 3 | 4 | 5;
+
+export type CombatSettings = {
+  expert: boolean;
+  shoulderToShoulder: 0 | 10 | 20;
+  berserkerCharge: boolean;
+  frenzy: boolean;
+  /** Null means: keep following the matching skill on the main sheet. */
+  parryRank: CombatSkillRank | null;
+  /** Null means: keep following the matching skill on the main sheet. */
+  dodgeRank: CombatSkillRank | null;
+  shieldEnabled: boolean;
+  shieldBonus: number;
+};
+
 export type Character = {
   formatVersion: 1;
   dataRevision?: number;
@@ -112,6 +127,7 @@ export type Character = {
   woundsCurrent: number;
   woundsTotal: number;
   fatigueCurrent: number;
+  combatSettings: CombatSettings;
   experienceEarned: number;
   /** Null keeps the automatic total calculated from advances; a number is a manually recorded total. */
   experienceSpentOverride: number | null;
