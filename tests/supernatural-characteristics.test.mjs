@@ -211,8 +211,10 @@ test("calculates d100 skill successes, failures and critical results", async () 
     roll: 13, threshold: 89, passed: true, critical: null, successes: 7, failures: 0, text: "Проверка пройдена на 7 успехов",
   });
   assert.equal(rules.evaluateSkillCheck(89, 80).text, "Проверка пройдена без успехов");
-  assert.equal(rules.evaluateSkillCheck(89, 99).text, "Проверка провалена с 1 провалом");
-  assert.equal(rules.evaluateSkillCheck(89, 100).text, "Проверка провалена, критический провал!");
+  assert.equal(rules.evaluateSkillCheck(89, 99).text, "Проверка не пройдена: 1 провал");
+  assert.equal(rules.evaluateSkillCheck(79, 99).text, "Проверка не пройдена: 2 провала");
+  assert.equal(rules.evaluateSkillCheck(49, 99).text, "Проверка не пройдена: 5 провалов");
+  assert.equal(rules.evaluateSkillCheck(89, 100).text, "Проверка не пройдена: критический провал!");
   assert.deepEqual(rules.evaluateSkillCheck(89, 1), {
     roll: 1, threshold: 89, passed: true, critical: "success", successes: 9, failures: 0, text: "Проверка пройдена, критические 9 успехов!",
   });
