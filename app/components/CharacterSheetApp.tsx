@@ -85,7 +85,7 @@ function StartScreen({ autosave, onNew, onLoad, onRestore, onDeleteAutosave }: {
         <label className="load-button"><FileUp /> Загрузить персонажа<input type="file" accept="application/json,.json" onChange={onLoad} /></label>
       </div>
       {autosave && <div className="autosave-card"><div><span>Найдено автосохранение</span><strong>{autosave.name || "Безымянный персонаж"}</strong><time>{new Date(autosave.savedAt).toLocaleString("ru-RU")}</time></div><div className="autosave-actions"><Button size="sm" onClick={onRestore}><RotateCcw /> Восстановить</Button><Button size="icon-sm" variant="ghost" aria-label="Удалить автосохранение" onClick={onDeleteAutosave}><Trash2 /></Button></div></div>}
-      <p className="version">Character Sheet v0.11.0</p>
+      <p className="version">Character Sheet v0.11.1</p>
     </section>
   </main>;
 }
@@ -272,6 +272,7 @@ export default function CharacterSheetApp() {
   const [page, setPage] = useState<SheetPage>("front");
   const [isTurning, setIsTurning] = useState(false);
   const [turnDirection, setTurnDirection] = useState<"forward" | "backward">("forward");
+  const [turnPhase, setTurnPhase] = useState<"out" | "in" | null>(null);
   const [character, setCharacter] = useState<Character>(() => createNewCharacter());
   const [autosave, setAutosave] = useState<Character | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState("");
@@ -342,8 +343,15 @@ export default function CharacterSheetApp() {
     if (isTurning || next === page) return;
     setTurnDirection(PAGE_ORDER.indexOf(next) > PAGE_ORDER.indexOf(page) ? "forward" : "backward");
     setIsTurning(true);
-    window.setTimeout(() => setPage(next), 380);
-    window.setTimeout(() => setIsTurning(false), 780);
+    setTurnPhase("out");
+    window.setTimeout(() => {
+      setPage(next);
+      setTurnPhase("in");
+    }, 600);
+    window.setTimeout(() => {
+      setTurnPhase(null);
+      setIsTurning(false);
+    }, 1260);
   };
 
   if (screen === "start") return <>
@@ -353,7 +361,7 @@ export default function CharacterSheetApp() {
 
   return <main className="workspace-shell">
     <header className="toolbar"><Button variant="ghost" size="sm" onClick={() => setScreen("start")}><BookOpen /> Главное меню</Button><span className="toolbar-divider" /><span className="character-title">{character.name || "Безымянный персонаж"} <small>· {currentRace.name}</small></span><div className="toolbar-actions"><span className="save-status"><Save /> {lastSavedAt ? `Автосохранено ${new Date(lastSavedAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "Сохранение…"}</span><Button data-tutorial="save" variant="outline" size="sm" onClick={() => downloadCharacter(character)}><Download /> Сохранить JSON</Button><label className="toolbar-load"><FileUp /><span>Загрузить</span><input type="file" accept="application/json,.json" onChange={loadJson} /></label><Button size="icon-sm" variant="ghost" aria-label="Открыть обучение" onClick={() => { setPage("front"); setTutorialStep(0); }}><CircleHelp /></Button></div></header>
-    <div className={`sheet-scene book-scene show-${page} ${isTurning ? "turning" : ""}`}><div className="book-cover" aria-hidden="true" /><div className="sheet-paper">{page === "front" ? <FrontPage character={character} onChange={setCharacter} onRaceOpen={() => setRaceOpen(true)} /> : page === "back" ? <BackPage character={character} onChange={setCharacter} /> : <NotesPage character={character} onChange={setCharacter} />}<nav className="page-bookmarks" aria-label="Страницы чарника"><button className={page === "front" ? "active" : ""} onClick={() => turnToPage("front")}>Лицевая</button><button data-tutorial="flip" className={page === "back" ? "active" : ""} onClick={() => turnToPage("back")}>Оборот</button><button className={page === "notes" ? "active" : ""} onClick={() => turnToPage("notes")}>Заметки</button></nav>{isTurning && <div className={`turning-leaf ${turnDirection}`} aria-hidden="true"><div className="leaf-front" /><div className="leaf-back" /></div>}</div></div>
+    <div className={`sheet-scene book-scene show-${page} ${isTurning ? "turning" : ""}`}><div className="book-cover" aria-hidden="true" /><div className={`sheet-paper ${turnPhase ? `page-turn-${turnPhase} ${turnDirection}` : ""}`}>{page === "front" ? <FrontPage character={character} onChange={setCharacter} onRaceOpen={() => setRaceOpen(true)} /> : page === "back" ? <BackPage character={character} onChange={setCharacter} /> : <NotesPage character={character} onChange={setCharacter} />}<nav className="page-bookmarks" aria-label="Страницы чарника"><button className={page === "front" ? "active" : ""} onClick={() => turnToPage("front")}>Лицевая</button><button data-tutorial="flip" className={page === "back" ? "active" : ""} onClick={() => turnToPage("back")}>Оборот</button><button className={page === "notes" ? "active" : ""} onClick={() => turnToPage("notes")}>Заметки</button></nav></div></div>
     <DiceRoller character={character} />
     <button className="breakthrough-button" onClick={() => setBreakthroughsOpen(true)}><Moon /><span>Прорывы</span><strong>{character.breakthroughs.length}</strong></button>
     <RacePicker key={`${character.raceId}-${raceOpen}`} open={raceOpen} currentId={character.raceId} onOpenChange={setRaceOpen} onApply={applyRace} />
