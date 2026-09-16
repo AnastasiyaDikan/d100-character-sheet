@@ -10,6 +10,7 @@ async function loadRules() {
     export { COMBAT_ACTIONS, combatActionValues, selectedCombatRank } from ${JSON.stringify(new URL("../lib/character/combat.ts", import.meta.url).pathname)};
     export { normalizeCharacter } from ${JSON.stringify(new URL("../lib/character/storage.ts", import.meta.url).pathname)};
     export { DICE_SIDES, rollDie } from ${JSON.stringify(new URL("../lib/character/dice.ts", import.meta.url).pathname)};
+    export { discordMessagePayload, parseDiscordWebhookUrl, validDiscordRoll } from ${JSON.stringify(new URL("../lib/character/discord.ts", import.meta.url).pathname)};
   `;
   const result = await build({ stdin: { contents: entry, loader: "ts", resolveDir: process.cwd() }, bundle: true, platform: "node", format: "esm", write: false });
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
@@ -167,7 +168,7 @@ test("prices the +40 skill rank as the first purchase", async () => {
   assert.equal(rules.spentExperience(atForty) - rules.spentExperience(atThirty), 100);
 });
 
-test("counterattack uses melee, Expert, Shoulder to Shoulder and the -20 penalty", async () => {
+test("counterattack uses melee, its modifier, Expert, Shoulder to Shoulder and the -20 penalty", async () => {
   const rules = await loadRules();
   const base = rules.createCharacter();
   const counterattack = rules.COMBAT_ACTIONS.find((action) => action.id === "counterattack");
@@ -177,7 +178,22 @@ test("counterattack uses melee, Expert, Shoulder to Shoulder and the -20 penalty
     combatSettings: { ...base.combatSettings, counterattack: true, expert: true, shoulderToShoulder: 20, frenzy: true },
   };
   assert.equal(counterattack.requiresCounterattack, true);
-  assert.equal(rules.combatActionValues(character, counterattack)[0].value, 80);
+  assert.equal(rules.combatActionValues(character, counterattack)[0].value, 87);
+});
+
+test("accepts only Discord webhook URLs and builds safe roll embeds", async () => {
+  const rules = await loadRules();
+  assert.equal(rules.parseDiscordWebhookUrl("https://discord.com/api/webhooks/123456/token-value").toString(), "https://discord.com/api/webhooks/123456/token-value?wait=true");
+  assert.equal(rules.parseDiscordWebhookUrl("https://example.com/api/webhooks/123456/token-value"), null);
+  assert.equal(rules.parseDiscordWebhookUrl("https://discord.com.evil.test/api/webhooks/123456/token-value"), null);
+  assert.equal(rules.validDiscordRoll({ sides: 100, result: 100 }), true);
+  assert.equal(rules.validDiscordRoll({ sides: 20, result: 21 }), false);
+  const payload = rules.discordMessagePayload({ characterName: "Лиза Ашвинг", sides: 20, result: 12 }, true);
+  assert.equal(payload.username, "Лиза Ашвинг");
+  assert.equal(payload.embeds[0].title, "Бросок d20");
+  assert.equal(payload.embeds[0].description, "# 12");
+  assert.equal(payload.embeds[0].thumbnail.url, "attachment://character-avatar.png");
+  assert.deepEqual(payload.allowed_mentions, { parse: [] });
 });
 
 test("rolls every supported polyhedral die inside its range", async () => {

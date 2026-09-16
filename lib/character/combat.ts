@@ -89,12 +89,13 @@ function attackValue(character: Character, id: "melee" | "shooting", charge = fa
 export function combatActionValues(character: Character, action: CombatAction): CombatActionValue[] {
   if (action.check === "counterattack") {
     const characteristic = fatiguedCharacteristicValue(character, "melee");
+    const modifier = fatiguedEffectiveBonus(character, "melee");
     const expert = character.combatSettings.expert ? 10 : 0;
     const shoulder = character.combatSettings.shoulderToShoulder;
     return [{
       label: "НР",
-      value: characteristic + expert + shoulder - 20,
-      explanation: [`НР ${characteristic}`, expert ? "Эксперт +10" : "", shoulder ? `Плечом к Плечу +${shoulder}` : "", "Контратака -20"].filter(Boolean).join("; "),
+      value: characteristic + modifier + expert + shoulder - 20,
+      explanation: [`НР ${characteristic}`, `модификатор ${modifier}`, expert ? "Эксперт +10" : "", shoulder ? `Плечом к Плечу +${shoulder}` : "", "Контратака -20"].filter(Boolean).join("; "),
     }];
   }
   if (action.check === "melee") return [attackValue(character, "melee", action.id === "charge")];
