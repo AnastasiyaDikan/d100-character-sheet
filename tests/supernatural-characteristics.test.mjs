@@ -191,6 +191,51 @@ test("prices the +40 skill rank as the first purchase", async () => {
   assert.equal(rules.spentExperience(atForty) - rules.spentExperience(atThirty), 100);
 });
 
+test("includes Strength-based Intimidation and adds it to old saves", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  const intimidation = base.skills.find((skill) => skill.id === "intimidation");
+  assert.equal(intimidation?.label, "Запугивание");
+  assert.equal(intimidation?.characteristic, "strength");
+  assert.equal(intimidation?.level, 0);
+
+  const legacy = { ...base, skills: base.skills.filter((skill) => skill.id !== "intimidation") };
+  const normalized = rules.normalizeCharacter(legacy);
+  assert.equal(normalized.skills.find((skill) => skill.id === "intimidation")?.characteristic, "strength");
+});
+
+test("splits Navigation and Operate into ground and air skills", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  const expected = [
+    ["navigation-ground", "Навигация: Наземная", "intelligence"],
+    ["navigation-air", "Навигация: Воздушная", "intelligence"],
+    ["operate-ground", "Управление: Наземное", "agility"],
+    ["operate-air", "Управление: Воздушное", "agility"],
+  ];
+  for (const [id, label, characteristic] of expected) {
+    const skill = base.skills.find((item) => item.id === id);
+    assert.equal(skill?.label, label);
+    assert.equal(skill?.characteristic, characteristic);
+  }
+  assert.equal(base.skills.some((skill) => skill.id === "navigation" || skill.id === "operate"), false);
+
+  const legacy = {
+    ...base,
+    skills: [
+      ...base.skills.filter((skill) => !skill.id.startsWith("navigation-") && !skill.id.startsWith("operate-")),
+      { id: "navigation", label: "Навигация", characteristic: "intelligence", level: 3 },
+      { id: "operate", label: "Управление", characteristic: "agility", level: 2 },
+    ],
+  };
+  const normalized = rules.normalizeCharacter(legacy);
+  assert.equal(normalized.skills.find((skill) => skill.id === "navigation-ground")?.level, 3);
+  assert.equal(normalized.skills.find((skill) => skill.id === "navigation-air")?.level, 0);
+  assert.equal(normalized.skills.find((skill) => skill.id === "operate-ground")?.level, 2);
+  assert.equal(normalized.skills.find((skill) => skill.id === "operate-air")?.level, 0);
+  assert.equal(normalized.skills.some((skill) => skill.id === "navigation" || skill.id === "operate"), false);
+});
+
 test("counterattack uses melee, its modifier, Expert, Shoulder to Shoulder and the -20 penalty", async () => {
   const rules = await loadRules();
   const base = rules.createCharacter();

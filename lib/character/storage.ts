@@ -1,5 +1,5 @@
 import type { Character } from "./types";
-import { createCharacter, RACES } from "./data";
+import { BASE_SKILLS, createCharacter, RACES } from "./data";
 import { applyRace, calculateRaceWounds } from "./race-engine";
 
 const DB_NAME = "d100-character-sheet";
@@ -52,12 +52,28 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
   const raceChoices = raw.raceId === "kobold"
     ? { aptitude: "Навык стрельбы" }
     : (raw.raceChoices ?? {});
+  const rawSkills = raw.skills ?? [];
+  const legacySkillIds: Partial<Record<string, string>> = {
+    "navigation-ground": "navigation",
+    "operate-ground": "operate",
+  };
+  const normalizedSkills = [
+    ...BASE_SKILLS.map((baseSkill) => {
+      const legacyId = legacySkillIds[baseSkill.id];
+      const stored = rawSkills.find((skill) => skill.id === baseSkill.id)
+        ?? (legacyId ? rawSkills.find((skill) => skill.id === legacyId) : undefined);
+      return stored
+        ? { ...stored, id: baseSkill.id, label: baseSkill.label, characteristic: baseSkill.characteristic }
+        : { ...baseSkill };
+    }),
+    ...rawSkills.filter((skill) => !BASE_SKILLS.some((baseSkill) => baseSkill.id === skill.id) && skill.id !== "navigation" && skill.id !== "operate"),
+  ];
   const merged: Character = {
     ...base,
     ...raw,
     raceId,
     raceChoices,
-    dataRevision: 6,
+    dataRevision: 8,
     avatarCrop: raw.avatarCrop ?? base.avatarCrop,
     characteristics: { ...base.characteristics, ...(raw.characteristics ?? {}) },
     aptitudes: { ...base.aptitudes, ...(raw.aptitudes ?? {}) },
@@ -70,6 +86,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     fateMax: raw.fateMax ?? legacyFate,
     corruption: raw.corruption ?? null,
     experienceSpentOverride: raw.experienceSpentOverride ?? null,
+    skills: normalizedSkills,
     journal: typeof raw.journal === "string" ? raw.journal : "",
     combatSettings: {
       expert: rawCombat?.expert === true,
@@ -95,7 +112,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     const advances = legacy?.advances ?? 0;
     return [id, { ...value, advances, value: value.value + advances * 5 }];
   })) as Character["characteristics"];
-  const withProgress = { ...migrated, characteristics, dataRevision: 6 as const };
+  const withProgress = { ...migrated, characteristics, dataRevision: 8 as const };
   const woundsTotal = calculateRaceWounds(withProgress, race);
   return { ...withProgress, woundsTotal, woundsCurrent: woundsTotal };
 }
