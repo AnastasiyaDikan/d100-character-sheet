@@ -1,7 +1,7 @@
 import { fatiguedCharacteristicValue, fatiguedEffectiveBonus } from "./calculations";
 import type { Character, CharacteristicId, CombatSkillRank } from "./types";
 
-export type CombatCheckKind = "none" | "melee" | "shooting" | "both" | "parry" | "dodge" | "strength" | "skill" | "counterattack";
+export type CombatCheckKind = "none" | "melee" | "shooting" | "both" | "parry-weapon" | "parry-shield" | "dodge" | "strength" | "skill" | "counterattack";
 
 export type CombatAction = {
   id: string;
@@ -26,7 +26,8 @@ export const COMBAT_ACTIONS: CombatAction[] = [
   { id: "disengage", action: "Выход из боя", type: "Полное", subtype: "Движение", description: "Уйти от ближнего боя не подставляясь под свободную атаку.", check: "none" },
   { id: "grapple", action: "Захват", type: "Разный", subtype: "Атака, Рукопашная", description: "Манипуляции с Захваченным персонажем или уйти от Захвата.", check: "melee" },
   { id: "defensive-stance", action: "Защитная стойка", type: "Полное", subtype: "Концентрация, Рукопашная", description: "Получить дополнительную Реакцию. Оппонент получает -20 НР.", check: "none" },
-  { id: "parry", action: "Парирование", type: "Реакция", subtype: "Рукопашная", description: "Используется с умением Парирование (Рукопашная) для избежания входящей атаки.", check: "parry" },
+  { id: "parry-weapon", action: "Парирование (оружием)", type: "Реакция", subtype: "Рукопашная", description: "Парирование оружием. Учитывает умение Парирование и боевые таланты, относящиеся к оружию.", check: "parry-weapon" },
+  { id: "parry-shield", action: "Парирование щитом", type: "Реакция", subtype: "Рукопашная", description: "Парирование щитом. Учитывает умение Парирование и указанный бонус щита, но не Эксперта во владении оружием.", check: "parry-shield" },
   { id: "dodge", action: "Уклонение", type: "Реакция", subtype: "Движение", description: "Используется с умением Уклонение (Ловкость) для избежания входящей атаки.", check: "dodge" },
   { id: "use-skill", action: "Использовать умение", type: "Разный", subtype: "Концентрация, Разный", description: "Персонаж может использовать умение.", check: "skill" },
   { id: "manoeuvre", action: "Манёвр", type: "Полу", subtype: "Рукопашная, Движение", description: "Встречная проверка НР; при успехе враг передвигается на 1 метр.", check: "melee" },
@@ -35,7 +36,6 @@ export const COMBAT_ACTIONS: CombatAction[] = [
   { id: "charge", action: "Натиск", type: "Полное", subtype: "Атака, Рукопашная, Движение", description: "Должен продвинуться хотя бы на 4 метра, +20 к НР.", check: "melee" },
   { id: "stun", action: "Оглушение", type: "Полное", subtype: "Атака, Рукопашная", description: "Попытка Оглушить оппонента. Проверка НР с -20; при успехе бросается 1к10 + БС атакующего. Если значение больше либо равно БВын и значению брони на голове атакуемого, цель оглушается на количество раундов, равное разнице между двумя значениями.", check: "melee" },
   { id: "cautious-attack", action: "Осторожная атака", type: "Полное", subtype: "Атака любая, Концентрация", description: "-10 к НС или НР, +10 ко всем проверкам Избегания до начала следующего раунда.", check: "both" },
-  { id: "aim", action: "Прицелиться", type: "Разный", subtype: "Концентрация", description: "+10 за полудействие или +20 за полное действие к следующей атаке персонажа.", check: "none" },
   { id: "knock-down", action: "Сбить с ног", type: "Полу", subtype: "Атака, Рукопашная", description: "Используется как часть Натиска или сразу после полудействия движения. Встречная проверка Силы с +10; при успехе цель сбита с ног. Две и более степени успеха наносят цели урон 1к5-3 + БС и один уровень Усталости; при провале с разницей в две и более степени успеха атакующий сбит с ног.", check: "strength" },
   { id: "standard-attack", action: "Стандартная атака", type: "Полу", subtype: "Атака любая", description: "+10 НР или НС; сделать одну атаку в ближнем или дальнем бою.", check: "both" },
   { id: "feint", action: "Финт", type: "Полу", subtype: "Рукопашная", description: "Встречная проверка НР; если персонаж выиграл, от его следующей атаки нельзя увернуться или парировать её.", check: "melee" },
@@ -69,16 +69,28 @@ export function sharedWeaponBonus(character: Character) {
   return (settings.expert ? 10 : 0) + settings.shoulderToShoulder + (settings.frenzy ? 10 : 0);
 }
 
-function attackValue(character: Character, id: "melee" | "shooting", charge = false): CombatActionValue {
+function actionBonus(character: Character, action: CombatAction) {
+  const fixed = action.id === "all-out-attack" ? 30 : action.id === "standard-attack" ? 10 : 0;
+  const aimed = action.subtype.toLocaleLowerCase("ru").includes("атака") ? character.combatSettings.aimBonus : 0;
+  return { fixed, aimed };
+}
+
+function attackValue(character: Character, id: "melee" | "shooting", action: CombatAction): CombatActionValue {
   const base = characteristicBase(character, id);
   const settings = character.combatSettings;
+  const bonus = actionBonus(character, action);
   const additions = [
     settings.expert ? "Эксперт +10" : "",
     settings.shoulderToShoulder ? `Плечом к Плечу +${settings.shoulderToShoulder}` : "",
     settings.frenzy ? "Неистовство +10" : "",
-    charge && settings.berserkerCharge ? "Натиск Берсерка +30" : "",
+    action.id === "charge" && settings.berserkerCharge ? "Натиск Берсерка +30" : "",
+    bonus.fixed ? `${action.action} +${bonus.fixed}` : "",
+    bonus.aimed ? `Прицеливание +${bonus.aimed}` : "",
   ].filter(Boolean);
-  const extra = sharedWeaponBonus(character) + (charge && settings.berserkerCharge ? 30 : 0);
+  const extra = sharedWeaponBonus(character)
+    + (action.id === "charge" && settings.berserkerCharge ? 30 : 0)
+    + bonus.fixed
+    + bonus.aimed;
   return {
     label: id === "melee" ? "НР" : "НС",
     value: base.value + extra,
@@ -98,22 +110,26 @@ export function combatActionValues(character: Character, action: CombatAction): 
       explanation: [`НР ${characteristic}`, `модификатор ${modifier}`, expert ? "Эксперт +10" : "", shoulder ? `Плечом к Плечу +${shoulder}` : "", "Контратака -20"].filter(Boolean).join("; "),
     }];
   }
-  if (action.check === "melee") return [attackValue(character, "melee", action.id === "charge")];
-  if (action.check === "shooting") return [attackValue(character, "shooting")];
-  if (action.check === "both") return [attackValue(character, "melee"), attackValue(character, "shooting")];
+  if (action.check === "melee") return [attackValue(character, "melee", action)];
+  if (action.check === "shooting") return [attackValue(character, "shooting", action)];
+  if (action.check === "both") return [attackValue(character, "melee", action), attackValue(character, "shooting", action)];
   if (action.check === "strength") {
     const base = characteristicBase(character, "strength");
-    return [{ label: "С", value: base.value, explanation: base.explanation }];
+    const knockDownBonus = action.id === "knock-down" ? 10 : 0;
+    return [{ label: "С", value: base.value + knockDownBonus, explanation: `${base.explanation}${knockDownBonus ? "; Сбить с ног +10" : ""}` }];
   }
-  if (action.check === "parry") {
+  if (action.check === "parry-weapon" || action.check === "parry-shield") {
     const base = characteristicBase(character, "melee");
     const rank = selectedCombatRank(character, "parry");
     const training = rankModifier(rank);
-    const shield = character.combatSettings.shieldEnabled ? Math.max(0, character.combatSettings.shieldBonus) : 0;
+    const weaponBonus = action.check === "parry-weapon"
+      ? sharedWeaponBonus(character)
+      : character.combatSettings.shoulderToShoulder;
+    const shield = action.check === "parry-shield" && character.combatSettings.shieldEnabled ? Math.max(0, character.combatSettings.shieldBonus) : 0;
     return [{
       label: "Пар",
-      value: base.value + training + sharedWeaponBonus(character) + shield,
-      explanation: `${base.explanation}; ${rank === 0 ? "не изучено -20" : `Парирование ${COMBAT_RANK_LABELS[rank - 1]} ${training >= 0 ? "+" : ""}${training}`}${shield ? `; Щит +${shield}` : ""}${sharedWeaponBonus(character) ? `; боевые таланты +${sharedWeaponBonus(character)}` : ""}`,
+      value: base.value + training + weaponBonus + shield,
+      explanation: `${base.explanation}; ${rank === 0 ? "не изучено -20" : `Парирование ${COMBAT_RANK_LABELS[rank - 1]} ${training >= 0 ? "+" : ""}${training}`}${shield ? `; Щит +${shield}` : ""}${weaponBonus ? `; боевые таланты +${weaponBonus}` : ""}`,
     }];
   }
   if (action.check === "dodge") {

@@ -82,6 +82,8 @@ export type CombatSettings = {
   dodgeRank: CombatSkillRank | null;
   shieldEnabled: boolean;
   shieldBonus: number;
+  /** 0 — не прицеливается, 10 — полудействие, 20 — полное действие. */
+  aimBonus: 0 | 10 | 20;
 };
 
 export type Character = {
@@ -102,6 +104,8 @@ export type Character = {
   background: string;
   role: string;
   notes: string;
+  /** Свободные записи на отдельной третьей странице. */
+  journal: string;
   allies: string;
   enemies: string;
   avatar: string;

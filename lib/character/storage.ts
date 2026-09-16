@@ -70,6 +70,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     fateMax: raw.fateMax ?? legacyFate,
     corruption: raw.corruption ?? null,
     experienceSpentOverride: raw.experienceSpentOverride ?? null,
+    journal: typeof raw.journal === "string" ? raw.journal : "",
     combatSettings: {
       expert: rawCombat?.expert === true,
       shoulderToShoulder: rawCombat?.shoulderToShoulder === 10 || rawCombat?.shoulderToShoulder === 20 ? rawCombat.shoulderToShoulder : 0,
@@ -80,6 +81,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
       dodgeRank: normalizeRank(rawCombat?.dodgeRank),
       shieldEnabled: rawCombat?.shieldEnabled === true,
       shieldBonus: Number.isFinite(Number(rawCombat?.shieldBonus)) ? Math.max(0, Number(rawCombat?.shieldBonus)) : 0,
+      aimBonus: rawCombat?.aimBonus === 10 || rawCombat?.aimBonus === 20 ? rawCombat.aimBonus : 0,
     },
     weapons: raw.weapons ?? [],
   };

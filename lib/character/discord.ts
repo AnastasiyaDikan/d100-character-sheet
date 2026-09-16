@@ -6,11 +6,13 @@ export type DiscordRollRequest = {
   characterName: string;
   avatar?: string;
   test?: boolean;
-  kind?: "simple" | "skill";
+  kind?: "simple" | "skill" | "combat";
   sides?: number;
   result?: number;
   skillName?: string;
   threshold?: number;
+  actionName?: string;
+  checkLabel?: string;
 };
 
 export function parseDiscordWebhookUrl(value: string) {
@@ -36,14 +38,21 @@ export function validDiscordRoll(request: DiscordRollRequest) {
     && Number(request.result) >= 1
     && Number(request.result) <= Number(request.sides);
   if (!validDie) return false;
-  if (request.kind !== "skill") return true;
-  return request.sides === 100
-    && typeof request.skillName === "string"
-    && request.skillName.trim().length >= 1
-    && request.skillName.trim().length <= 120
+  if (request.kind !== "skill" && request.kind !== "combat") return true;
+  const validThreshold = request.sides === 100
     && Number.isInteger(request.threshold)
     && Number(request.threshold) >= -100
     && Number(request.threshold) <= 500;
+  if (!validThreshold) return false;
+  if (request.kind === "skill") return typeof request.skillName === "string"
+    && request.skillName.trim().length >= 1
+    && request.skillName.trim().length <= 120;
+  return typeof request.actionName === "string"
+    && request.actionName.trim().length >= 1
+    && request.actionName.trim().length <= 120
+    && typeof request.checkLabel === "string"
+    && request.checkLabel.trim().length >= 1
+    && request.checkLabel.trim().length <= 40;
 }
 
 export function discordMessagePayload(request: DiscordRollRequest, hasAvatar: boolean) {
@@ -55,12 +64,14 @@ export function discordMessagePayload(request: DiscordRollRequest, hasAvatar: bo
         description: `Броски персонажа **${characterName}** будут появляться в этом канале.`,
         color: 0x6d281f,
       }
-    : request.kind === "skill"
+    : request.kind === "skill" || request.kind === "combat"
       ? (() => {
           const outcome = evaluateSkillCheck(Number(request.threshold), Number(request.result));
           return {
             author: { name: characterName },
-            title: `Бросок навыка «${request.skillName?.trim()}» d100`,
+            title: request.kind === "skill"
+              ? `Бросок навыка «${request.skillName?.trim()}» d100`
+              : `Боевое действие «${request.actionName?.trim()}» — ${request.checkLabel?.trim()}`,
             description: `Порог — ${request.threshold}\n# ${request.result}\n**${outcome.text}**`,
             color: outcome.passed ? 0x477a45 : 0x8f3028,
           };

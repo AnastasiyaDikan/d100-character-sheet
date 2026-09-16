@@ -2,7 +2,7 @@
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
-  BookOpen, Check, ChevronLeft, ChevronRight, CircleHelp, Download, Feather, FileUp,
+  BookOpen, BookText, Check, ChevronLeft, ChevronRight, CircleHelp, Download, Feather, FileUp,
   HeartPulse, ImagePlus, Moon, Pencil, Plus, RotateCcw, Save, Search, Shield, Skull,
   Sparkles, Trash2, X,
 } from "lucide-react";
@@ -43,7 +43,7 @@ const TUTORIAL = [
   ["skills", "Навыки", "Ступени Know, +10, +20, +30 и +40 описывают уровень владения навыком. Ступень +40 стоит как первая покупка навыка."],
   ["talents", "Таланты и черты", "Здесь можно внести таланты и черты персонажа."],
   ["hit-map", "Карта попаданий", "Защита зоны считается из доспехов, естественной брони и Бонуса Выносливости."],
-  ["flip", "Оборотная сторона", "Переверните лист кнопкой у правого края, чтобы открыть снаряжение и расчёты."],
+  ["flip", "Страницы чарника", "Переключайтесь между лицевой стороной, снаряжением и заметками с помощью закладок у правого края."],
   ["save", "Сохранение", "Изменения сохраняются автоматически. Отдельный JSON можно скачать в любой момент."],
 ] as const;
 
@@ -85,7 +85,7 @@ function StartScreen({ autosave, onNew, onLoad, onRestore, onDeleteAutosave }: {
         <label className="load-button"><FileUp /> Загрузить персонажа<input type="file" accept="application/json,.json" onChange={onLoad} /></label>
       </div>
       {autosave && <div className="autosave-card"><div><span>Найдено автосохранение</span><strong>{autosave.name || "Безымянный персонаж"}</strong><time>{new Date(autosave.savedAt).toLocaleString("ru-RU")}</time></div><div className="autosave-actions"><Button size="sm" onClick={onRestore}><RotateCcw /> Восстановить</Button><Button size="icon-sm" variant="ghost" aria-label="Удалить автосохранение" onClick={onDeleteAutosave}><Trash2 /></Button></div></div>}
-      <p className="version">Character Sheet v0.10.1</p>
+      <p className="version">Character Sheet v0.11.0</p>
     </section>
   </main>;
 }
@@ -257,10 +257,21 @@ function BackPage({ character, onChange }: { character: Character; onChange: (ch
   </div><section className="panel inventory-panel"><div className="section-heading"><h2>Инвентарь</h2><Button size="xs" variant="ghost" onClick={addInventory}><Plus /> Строка</Button></div><div className="inventory-head"><span>Название</span><span>Стоимость</span><span>Свойства</span><span /></div><div className="inventory-scroll">{character.inventory.map((item: InventoryItem) => <div className="inventory-row" key={item.id}><input value={item.name} onChange={(event) => update("inventory", character.inventory.map((current) => current.id === item.id ? { ...current, name: event.target.value } : current))} /><input value={item.cost} onChange={(event) => update("inventory", character.inventory.map((current) => current.id === item.id ? { ...current, cost: event.target.value } : current))} /><input value={item.properties} onChange={(event) => update("inventory", character.inventory.map((current) => current.id === item.id ? { ...current, properties: event.target.value } : current))} /><button onClick={() => update("inventory", character.inventory.filter((current) => current.id !== item.id))}><Trash2 /></button></div>)}</div></section></div></div>;
 }
 
+function NotesPage({ character, onChange }: { character: Character; onChange: (character: Character) => void }) {
+  return <div className="sheet-page notes-page">
+    <header><BookText aria-hidden="true" /><div><p>Личный журнал персонажа</p><h1>Заметки</h1></div></header>
+    <textarea value={character.journal} onChange={(event) => onChange({ ...character, journal: event.target.value })} aria-label="Заметки персонажа" placeholder="Запишите здесь всё, что важно сохранить…" spellCheck />
+  </div>;
+}
+
+type SheetPage = "front" | "back" | "notes";
+const PAGE_ORDER: SheetPage[] = ["front", "back", "notes"];
+
 export default function CharacterSheetApp() {
   const [screen, setScreen] = useState<"start" | "sheet">("start");
-  const [page, setPage] = useState<"front" | "back">("front");
+  const [page, setPage] = useState<SheetPage>("front");
   const [isTurning, setIsTurning] = useState(false);
+  const [turnDirection, setTurnDirection] = useState<"forward" | "backward">("forward");
   const [character, setCharacter] = useState<Character>(() => createNewCharacter());
   const [autosave, setAutosave] = useState<Character | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState("");
@@ -327,11 +338,12 @@ export default function CharacterSheetApp() {
     setRaceOpen(false);
   };
   const tutorial = tutorialStep === null ? null : TUTORIAL[tutorialStep];
-  const turnPage = () => {
-    if (isTurning) return;
+  const turnToPage = (next: SheetPage) => {
+    if (isTurning || next === page) return;
+    setTurnDirection(PAGE_ORDER.indexOf(next) > PAGE_ORDER.indexOf(page) ? "forward" : "backward");
     setIsTurning(true);
-    window.setTimeout(() => setPage((current) => current === "front" ? "back" : "front"), 270);
-    window.setTimeout(() => setIsTurning(false), 620);
+    window.setTimeout(() => setPage(next), 380);
+    window.setTimeout(() => setIsTurning(false), 780);
   };
 
   if (screen === "start") return <>
@@ -341,7 +353,7 @@ export default function CharacterSheetApp() {
 
   return <main className="workspace-shell">
     <header className="toolbar"><Button variant="ghost" size="sm" onClick={() => setScreen("start")}><BookOpen /> Главное меню</Button><span className="toolbar-divider" /><span className="character-title">{character.name || "Безымянный персонаж"} <small>· {currentRace.name}</small></span><div className="toolbar-actions"><span className="save-status"><Save /> {lastSavedAt ? `Автосохранено ${new Date(lastSavedAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "Сохранение…"}</span><Button data-tutorial="save" variant="outline" size="sm" onClick={() => downloadCharacter(character)}><Download /> Сохранить JSON</Button><label className="toolbar-load"><FileUp /><span>Загрузить</span><input type="file" accept="application/json,.json" onChange={loadJson} /></label><Button size="icon-sm" variant="ghost" aria-label="Открыть обучение" onClick={() => { setPage("front"); setTutorialStep(0); }}><CircleHelp /></Button></div></header>
-    <div className={`sheet-scene book-scene ${page === "back" ? "show-back" : ""} ${isTurning ? "turning" : ""}`}><div className="book-cover" aria-hidden="true" /><div className="sheet-paper">{page === "front" ? <FrontPage character={character} onChange={setCharacter} onRaceOpen={() => setRaceOpen(true)} /> : <BackPage character={character} onChange={setCharacter} />}<button className="page-turn" data-tutorial="flip" onClick={turnPage} aria-label={page === "front" ? "Открыть оборотную сторону" : "Вернуться на лицевую сторону"}>{page === "front" ? <ChevronRight /> : <ChevronLeft />}<span>{page === "front" ? "Оборот" : "Лицевая"}</span></button>{isTurning && <div className="turning-leaf" aria-hidden="true"><div className="leaf-front" /><div className="leaf-back" /></div>}</div></div>
+    <div className={`sheet-scene book-scene show-${page} ${isTurning ? "turning" : ""}`}><div className="book-cover" aria-hidden="true" /><div className="sheet-paper">{page === "front" ? <FrontPage character={character} onChange={setCharacter} onRaceOpen={() => setRaceOpen(true)} /> : page === "back" ? <BackPage character={character} onChange={setCharacter} /> : <NotesPage character={character} onChange={setCharacter} />}<nav className="page-bookmarks" aria-label="Страницы чарника"><button className={page === "front" ? "active" : ""} onClick={() => turnToPage("front")}>Лицевая</button><button data-tutorial="flip" className={page === "back" ? "active" : ""} onClick={() => turnToPage("back")}>Оборот</button><button className={page === "notes" ? "active" : ""} onClick={() => turnToPage("notes")}>Заметки</button></nav>{isTurning && <div className={`turning-leaf ${turnDirection}`} aria-hidden="true"><div className="leaf-front" /><div className="leaf-back" /></div>}</div></div>
     <DiceRoller character={character} />
     <button className="breakthrough-button" onClick={() => setBreakthroughsOpen(true)}><Moon /><span>Прорывы</span><strong>{character.breakthroughs.length}</strong></button>
     <RacePicker key={`${character.raceId}-${raceOpen}`} open={raceOpen} currentId={character.raceId} onOpenChange={setRaceOpen} onApply={applyRace} />

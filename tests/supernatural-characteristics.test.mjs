@@ -129,11 +129,32 @@ test("calculates combat actions from the current characteristics and saved modif
     characteristics: { ...base.characteristics, melee: { ...base.characteristics.melee, value: 70 } },
   };
 
-  assert.equal(rules.combatActionValues(withMelee, standardAttack)[0].value, 77);
+  assert.equal(rules.combatActionValues(withMelee, standardAttack)[0].value, 87);
   const expert = { ...withMelee, combatSettings: { ...withMelee.combatSettings, expert: true } };
-  assert.equal(rules.combatActionValues(expert, standardAttack)[0].value, 87);
-  assert.equal(rules.combatActionValues({ ...expert, combatSettings: { ...expert.combatSettings, shoulderToShoulder: 10 } }, standardAttack)[0].value, 97);
-  assert.equal(rules.combatActionValues({ ...expert, combatSettings: { ...expert.combatSettings, shoulderToShoulder: 20 } }, standardAttack)[0].value, 107);
+  assert.equal(rules.combatActionValues(expert, standardAttack)[0].value, 97);
+  assert.equal(rules.combatActionValues({ ...expert, combatSettings: { ...expert.combatSettings, shoulderToShoulder: 10 } }, standardAttack)[0].value, 107);
+  assert.equal(rules.combatActionValues({ ...expert, combatSettings: { ...expert.combatSettings, shoulderToShoulder: 20 } }, standardAttack)[0].value, 117);
+
+  const allOut = rules.COMBAT_ACTIONS.find((action) => action.id === "all-out-attack");
+  const knockDown = rules.COMBAT_ACTIONS.find((action) => action.id === "knock-down");
+  assert.equal(rules.combatActionValues(withMelee, allOut)[0].value, 107);
+  assert.equal(rules.combatActionValues(base, knockDown)[0].value, 32);
+  assert.equal(rules.combatActionValues({ ...withMelee, combatSettings: { ...withMelee.combatSettings, aimBonus: 20 } }, standardAttack)[0].value, 107);
+});
+
+test("separates weapon and shield parry modifiers", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  const weaponParry = rules.COMBAT_ACTIONS.find((action) => action.id === "parry-weapon");
+  const shieldParry = rules.COMBAT_ACTIONS.find((action) => action.id === "parry-shield");
+  const character = {
+    ...base,
+    characteristics: { ...base.characteristics, melee: { ...base.characteristics.melee, value: 70 } },
+    skills: base.skills.map((skill) => skill.id === "parry" ? { ...skill, level: 1 } : skill),
+    combatSettings: { ...base.combatSettings, expert: true, frenzy: true, shoulderToShoulder: 20, shieldEnabled: true, shieldBonus: 15 },
+  };
+  assert.equal(rules.combatActionValues(character, weaponParry)[0].value, 117);
+  assert.equal(rules.combatActionValues(character, shieldParry)[0].value, 112);
 });
 
 test("copies parry and dodge ranks from the sheet but allows combat overrides", async () => {
@@ -156,6 +177,7 @@ test("adds combat defaults to old saves and preserves valid combat choices", asy
   assert.deepEqual(rules.normalizeCharacter(legacy).combatSettings, base.combatSettings);
   const configured = { ...base, combatSettings: { ...base.combatSettings, expert: true, parryRank: 5, shieldEnabled: true, shieldBonus: 12 } };
   assert.deepEqual(rules.normalizeCharacter(configured).combatSettings, configured.combatSettings);
+  assert.equal(rules.normalizeCharacter({ ...configured, journal: "Запись в журнале" }).journal, "Запись в журнале");
 });
 
 test("prices the +40 skill rank as the first purchase", async () => {
@@ -203,6 +225,10 @@ test("accepts only Discord webhook URLs and builds safe roll embeds", async () =
   assert.match(skillPayload.embeds[0].description, /Проверка пройдена на 7 успехов/);
   assert.equal(rules.validDiscordRoll({ kind: "skill", sides: 100, result: 13, skillName: "Атлетика", threshold: 89 }), true);
   assert.equal(rules.validDiscordRoll({ kind: "skill", sides: 20, result: 13, skillName: "Атлетика", threshold: 89 }), false);
+  const combatPayload = rules.discordMessagePayload({ characterName: "Лиза Ашвинг", kind: "combat", sides: 100, result: 31, actionName: "Стандартная атака", checkLabel: "НР", threshold: 87 }, true);
+  assert.equal(combatPayload.embeds[0].title, "Боевое действие «Стандартная атака» — НР");
+  assert.match(combatPayload.embeds[0].description, /Порог — 87/);
+  assert.equal(rules.validDiscordRoll({ kind: "combat", sides: 100, result: 31, actionName: "Стандартная атака", checkLabel: "НР", threshold: 87 }), true);
 });
 
 test("calculates d100 skill successes, failures and critical results", async () => {
