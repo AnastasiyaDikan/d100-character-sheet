@@ -7,32 +7,15 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DICE_SIDES, rollDie } from "@/lib/character/dice";
 import { parseDiscordWebhookUrl } from "@/lib/character/discord";
+import { createCharacterThumbnail, discordIsConnected, EMPTY_DISCORD_SETTINGS, loadDiscordSettings, saveDiscordSettings, sendDiscordRoll, type DiscordSettings } from "@/lib/character/discord-client";
 import type { Character } from "@/lib/character/types";
 
-type DiscordSettings = { enabled: boolean; webhookUrl: string };
 type DeliveryState = "idle" | "sending" | "sent" | "error";
-
-const EMPTY_DISCORD: DiscordSettings = { enabled: false, webhookUrl: "" };
-const discordStorageKey = (characterId: string) => `d100-discord-webhook:${characterId}`;
-
-function avatarForDiscord(avatar: string) {
-  return avatar.startsWith("data:image/") && avatar.length <= 4_800_000 ? avatar : "";
-}
-
-async function sendToDiscord(body: Record<string, unknown>) {
-  const response = await fetch("/api/discord-roll", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const message = await response.json().catch(() => ({})) as { error?: string };
-  if (!response.ok) throw new Error(message.error || "Не удалось отправить сообщение в Discord.");
-}
 
 function DiscordConnectionDialog({ open, settings, character, onOpenChange, onSave }: {
   open: boolean;
   settings: DiscordSettings;
-  character: Pick<Character, "name" | "avatar">;
+  character: Pick<Character, "name" | "avatar" | "avatarCrop">;
   onOpenChange: (open: boolean) => void;
   onSave: (settings: DiscordSettings) => void;
 }) {
@@ -55,10 +38,10 @@ function DiscordConnectionDialog({ open, settings, character, onOpenChange, onSa
     setTestState("sending");
     setTestError("");
     try {
-      await sendToDiscord({
+      await sendDiscordRoll({
         webhookUrl: draft.webhookUrl.trim(),
         characterName: character.name.trim() || "Безымянный персонаж",
-        avatar: avatarForDiscord(character.avatar),
+        avatar: await createCharacterThumbnail(character),
         test: true,
       });
       setTestState("sent");
@@ -114,27 +97,19 @@ function DieIcon({ sides }: { sides: typeof DICE_SIDES[number] }) {
 export default function DiceRoller({ character }: { character: Character }) {
   const [open, setOpen] = useState(false);
   const [discordOpen, setDiscordOpen] = useState(false);
-  const [settings, setSettings] = useState<DiscordSettings>(EMPTY_DISCORD);
+  const [settings, setSettings] = useState<DiscordSettings>(EMPTY_DISCORD_SETTINGS);
   const [delivery, setDelivery] = useState<DeliveryState>("idle");
   const [result, setResult] = useState<{ sides: number; value: number; serial: number } | null>(null);
   const latestRoll = useRef(0);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(discordStorageKey(character.characterId));
-      const parsed = stored ? JSON.parse(stored) as Partial<DiscordSettings> : null;
-      setSettings(parsed && typeof parsed.webhookUrl === "string"
-        ? { enabled: parsed.enabled === true, webhookUrl: parsed.webhookUrl }
-        : EMPTY_DISCORD);
-    } catch {
-      setSettings(EMPTY_DISCORD);
-    }
+    setSettings(loadDiscordSettings(character.characterId));
     setDelivery("idle");
   }, [character.characterId]);
 
   const saveSettings = (next: DiscordSettings) => {
     setSettings(next);
-    try { localStorage.setItem(discordStorageKey(character.characterId), JSON.stringify(next)); } catch { /* Browser storage may be unavailable. */ }
+    saveDiscordSettings(character.characterId, next);
     setDiscordOpen(false);
   };
 
@@ -144,22 +119,23 @@ export default function DiceRoller({ character }: { character: Character }) {
     latestRoll.current = serial;
     setResult({ sides, value, serial });
     setDelivery("idle");
-    if (!settings.enabled || !parseDiscordWebhookUrl(settings.webhookUrl)) return;
+    if (!discordIsConnected(settings)) return;
     setDelivery("sending");
-    void sendToDiscord({
+    void createCharacterThumbnail(character).then((avatar) => sendDiscordRoll({
       webhookUrl: settings.webhookUrl,
       characterName: character.name.trim() || "Безымянный персонаж",
-      avatar: avatarForDiscord(character.avatar),
+      avatar,
+      kind: "simple",
       sides,
       result: value,
-    }).then(() => {
+    })).then(() => {
       if (latestRoll.current === serial) setDelivery("sent");
     }).catch(() => {
       if (latestRoll.current === serial) setDelivery("error");
     });
   };
 
-  const connected = settings.enabled && Boolean(parseDiscordWebhookUrl(settings.webhookUrl));
+  const connected = discordIsConnected(settings);
   return <div className={`dice-widget ${open ? "open" : ""}`}>
     {!open ? <button className={`dice-launch ${connected ? "discord-connected" : ""}`} onClick={() => setOpen(true)} aria-label="Открыть бросок кубиков" title="Бросить кубик"><Dices /></button> : <div className="dice-table" role="group" aria-label="Выбор игрового кубика">
       {result && <output key={result.serial} className="dice-result" aria-live="polite"><span><small>d{result.sides}</small><strong>{result.value}</strong></span>{delivery !== "idle" && <em className={`dice-delivery ${delivery}`}>{delivery === "sending" && <><LoaderCircle className="spin" /> Discord…</>}{delivery === "sent" && <><CheckCircle2 /> Отправлено</>}{delivery === "error" && <><AlertTriangle /> Не отправлено</>}</em>}</output>}

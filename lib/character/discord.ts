@@ -1,12 +1,16 @@
 import { DICE_SIDES } from "./dice";
+import { evaluateSkillCheck } from "./skill-check";
 
 export type DiscordRollRequest = {
   webhookUrl: string;
   characterName: string;
   avatar?: string;
   test?: boolean;
+  kind?: "simple" | "skill";
   sides?: number;
   result?: number;
+  skillName?: string;
+  threshold?: number;
 };
 
 export function parseDiscordWebhookUrl(value: string) {
@@ -27,29 +31,44 @@ export function parseDiscordWebhookUrl(value: string) {
 
 export function validDiscordRoll(request: DiscordRollRequest) {
   if (request.test === true) return true;
-  return DICE_SIDES.includes(request.sides as typeof DICE_SIDES[number])
+  const validDie = DICE_SIDES.includes(request.sides as typeof DICE_SIDES[number])
     && Number.isInteger(request.result)
     && Number(request.result) >= 1
     && Number(request.result) <= Number(request.sides);
+  if (!validDie) return false;
+  if (request.kind !== "skill") return true;
+  return request.sides === 100
+    && typeof request.skillName === "string"
+    && request.skillName.trim().length >= 1
+    && request.skillName.trim().length <= 120
+    && Number.isInteger(request.threshold)
+    && Number(request.threshold) >= -100
+    && Number(request.threshold) <= 500;
 }
 
 export function discordMessagePayload(request: DiscordRollRequest, hasAvatar: boolean) {
   const characterName = request.characterName.trim().slice(0, 80) || "Безымянный персонаж";
   const username = /discord|clyde/i.test(characterName) ? "Красивый чарник D100" : characterName;
-  const embed = request.test
+  const embed: Record<string, unknown> = request.test
     ? {
         title: "Подключение установлено",
         description: `Броски персонажа **${characterName}** будут появляться в этом канале.`,
         color: 0x6d281f,
       }
+    : request.kind === "skill"
+      ? (() => {
+          const outcome = evaluateSkillCheck(Number(request.threshold), Number(request.result));
+          return {
+            author: { name: characterName },
+            title: `Бросок навыка «${request.skillName?.trim()}» d100`,
+            description: `Порог — ${request.threshold}\n# ${request.result}\n**${outcome.text}**`,
+            color: outcome.passed ? 0x477a45 : 0x8f3028,
+          };
+        })()
     : {
         author: { name: characterName },
         title: `Бросок d${request.sides}`,
         description: `# ${request.result}`,
-        fields: [
-          { name: "Результат", value: `**${request.result}**`, inline: true },
-          { name: "Формула", value: `1к${request.sides}`, inline: true },
-        ],
         color: 0x6d281f,
       };
 

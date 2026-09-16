@@ -11,6 +11,7 @@ async function loadRules() {
     export { normalizeCharacter } from ${JSON.stringify(new URL("../lib/character/storage.ts", import.meta.url).pathname)};
     export { DICE_SIDES, rollDie } from ${JSON.stringify(new URL("../lib/character/dice.ts", import.meta.url).pathname)};
     export { discordMessagePayload, parseDiscordWebhookUrl, validDiscordRoll } from ${JSON.stringify(new URL("../lib/character/discord.ts", import.meta.url).pathname)};
+    export { evaluateSkillCheck } from ${JSON.stringify(new URL("../lib/character/skill-check.ts", import.meta.url).pathname)};
   `;
   const result = await build({ stdin: { contents: entry, loader: "ts", resolveDir: process.cwd() }, bundle: true, platform: "node", format: "esm", write: false });
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
@@ -192,8 +193,29 @@ test("accepts only Discord webhook URLs and builds safe roll embeds", async () =
   assert.equal(payload.username, "Лиза Ашвинг");
   assert.equal(payload.embeds[0].title, "Бросок d20");
   assert.equal(payload.embeds[0].description, "# 12");
+  assert.equal("fields" in payload.embeds[0], false);
   assert.equal(payload.embeds[0].thumbnail.url, "attachment://character-avatar.png");
   assert.deepEqual(payload.allowed_mentions, { parse: [] });
+
+  const skillPayload = rules.discordMessagePayload({ characterName: "Лиза Ашвинг", kind: "skill", sides: 100, result: 13, skillName: "Атлетика", threshold: 89 }, true);
+  assert.equal(skillPayload.embeds[0].title, "Бросок навыка «Атлетика» d100");
+  assert.match(skillPayload.embeds[0].description, /Порог — 89/);
+  assert.match(skillPayload.embeds[0].description, /Проверка пройдена на 7 успехов/);
+  assert.equal(rules.validDiscordRoll({ kind: "skill", sides: 100, result: 13, skillName: "Атлетика", threshold: 89 }), true);
+  assert.equal(rules.validDiscordRoll({ kind: "skill", sides: 20, result: 13, skillName: "Атлетика", threshold: 89 }), false);
+});
+
+test("calculates d100 skill successes, failures and critical results", async () => {
+  const rules = await loadRules();
+  assert.deepEqual(rules.evaluateSkillCheck(89, 13), {
+    roll: 13, threshold: 89, passed: true, critical: null, successes: 7, failures: 0, text: "Проверка пройдена на 7 успехов",
+  });
+  assert.equal(rules.evaluateSkillCheck(89, 80).text, "Проверка пройдена без успехов");
+  assert.equal(rules.evaluateSkillCheck(89, 99).text, "Проверка провалена с 1 провалом");
+  assert.equal(rules.evaluateSkillCheck(89, 100).text, "Проверка провалена, критический провал!");
+  assert.deepEqual(rules.evaluateSkillCheck(89, 1), {
+    roll: 1, threshold: 89, passed: true, critical: "success", successes: 9, failures: 0, text: "Проверка пройдена, критические 9 успехов!",
+  });
 });
 
 test("rolls every supported polyhedral die inside its range", async () => {
