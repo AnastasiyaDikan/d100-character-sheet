@@ -82,6 +82,8 @@ export type CombatSettings = {
   dodgeRank: CombatSkillRank | null;
   shieldEnabled: boolean;
   shieldBonus: number;
+  /** Общий бонус или штраф для атак, контратак и парирования оружием. */
+  weaponModifier: number;
   /** 0 — не прицеливается, 10 — полудействие, 20 — полное действие. */
   aimBonus: 0 | 10 | 20;
 };
@@ -158,6 +160,8 @@ export type Race = {
   advantages: string[];
   disadvantages: string[];
   special?: boolean;
+  /** Пользовательская раса без общего лимита склонностей и автоматических расовых формул. */
+  unrestricted?: boolean;
   aptitudeBudget: number;
   freeAptitudePoints?: number;
   aptitudes: Partial<Record<CharacteristicId, number>>;

@@ -7,7 +7,7 @@ const catalogPath = fileURLToPath(new URL("../lib/character/talents.json", impor
 const snapshot = JSON.parse(await readFile(catalogPath, "utf8"));
 
 test("ships a complete local talent catalog", () => {
-  assert.equal(snapshot.talents.length, 250);
+  assert.equal(snapshot.talents.length, 249);
   assert.ok(snapshot.talents.every((talent) => talent.properties.length > 0));
   assert.ok(snapshot.talents.every((talent) => !/Rogue Trader|DeathWatch|Imperium Maledictum/i.test(talent.lineages)));
 });

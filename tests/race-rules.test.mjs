@@ -76,3 +76,23 @@ test("recalculates starting characteristics after manual aptitude distribution",
   assert.equal(applied.characteristics.intelligence.value, 20);
   assert.deepEqual(applied.appliedAptitudes, redistributed.aptitudes);
 });
+
+test("custom race keeps manual values and uses unrestricted aptitudes", async () => {
+  const { applyAptitudeCharacteristics, applyRace, createCharacter, RACES } = await loadRaceRules();
+  const race = RACES.find((item) => item.id === "custom");
+  const custom = applyRace(createCharacter(), race, { "custom-name": "Звёздный народ" });
+  assert.equal(custom.freeAptitudes, true);
+  assert.equal(custom.raceChoices["custom-name"], "Звёздный народ");
+  assert.ok(Object.values(custom.characteristics).every((item) => item.value === 20));
+  const edited = {
+    ...custom,
+    woundsTotal: 37,
+    naturalArmor: 8,
+    aptitudes: Object.fromEntries(Object.keys(custom.aptitudes).map((id) => [id, 2])),
+    characteristics: { ...custom.characteristics, strength: { ...custom.characteristics.strength, value: 88 } },
+  };
+  const applied = applyAptitudeCharacteristics(edited, race);
+  assert.equal(applied.characteristics.strength.value, 88);
+  assert.equal(applied.woundsTotal, 37);
+  assert.equal(applied.naturalArmor, 8);
+});

@@ -2,8 +2,8 @@
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
-  BookOpen, BookText, Check, ChevronLeft, ChevronRight, CircleHelp, Download, Feather, FileUp,
-  HeartPulse, ImagePlus, Moon, Pencil, Plus, RotateCcw, Save, Search, Shield, Skull,
+  AlertTriangle, BookOpen, BookText, Check, CheckCircle2, ChevronLeft, ChevronRight, CircleHelp, Dices, Download, Feather, FileUp,
+  HeartPulse, ImagePlus, LoaderCircle, Moon, Pencil, Plus, RotateCcw, Save, Search, Shield, Skull,
   Sparkles, Trash2, X,
 } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -22,6 +22,9 @@ import TutorialGuide from "./TutorialGuide";
 import { CHARACTERISTICS, createCharacter, RACES } from "@/lib/character/data";
 import { carrying, EXPERIENCE_COSTS, fatigueEffect, fatiguedBonus, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillThreshold, spentExperience, supernaturalMultiplier } from "@/lib/character/calculations";
 import { applyAptitudeCharacteristics, applyRace as applyRaceToCharacter, beginIndependentAptitudeDistribution, calculateNaturalArmor, calculateRaceWounds, independentAptitudeBudget } from "@/lib/character/race-engine";
+import { rollDie } from "@/lib/character/dice";
+import { createCharacterThumbnail, discordIsConnected, loadDiscordSettings, sendDiscordRoll } from "@/lib/character/discord-client";
+import { evaluateSkillCheck, type SkillCheckOutcome } from "@/lib/character/skill-check";
 import { deleteAutosave, downloadCharacter, loadAutosave, normalizeCharacter, saveAutosave } from "@/lib/character/storage";
 import type { Armor, Character, CharacteristicId, HitZone, InventoryItem, Race, Talent, Weapon } from "@/lib/character/types";
 
@@ -85,16 +88,16 @@ function StartScreen({ autosave, onNew, onLoad, onRestore, onDeleteAutosave }: {
         <label className="load-button"><FileUp /> Загрузить персонажа<input type="file" accept="application/json,.json" onChange={onLoad} /></label>
       </div>
       {autosave && <div className="autosave-card"><div><span>Найдено автосохранение</span><strong>{autosave.name || "Безымянный персонаж"}</strong><time>{new Date(autosave.savedAt).toLocaleString("ru-RU")}</time></div><div className="autosave-actions"><Button size="sm" onClick={onRestore}><RotateCcw /> Восстановить</Button><Button size="icon-sm" variant="ghost" aria-label="Удалить автосохранение" onClick={onDeleteAutosave}><Trash2 /></Button></div></div>}
-      <p className="version">Character Sheet v0.11.3</p>
+      <p className="version">Character Sheet v0.12.0</p>
     </section>
   </main>;
 }
 
-function RacePicker({ open, currentId, onOpenChange, onApply }: {
-  open: boolean; currentId: string; onOpenChange: (open: boolean) => void; onApply: (race: Race, choices: Record<string, string>) => void;
+function RacePicker({ open, currentId, currentChoices, onOpenChange, onApply }: {
+  open: boolean; currentId: string; currentChoices: Record<string, string>; onOpenChange: (open: boolean) => void; onApply: (race: Race, choices: Record<string, string>) => void;
 }) {
   const [selectedId, setSelectedId] = useState(currentId);
-  const [choices, setChoices] = useState<Record<string, string>>({});
+  const [choices, setChoices] = useState<Record<string, string>>(currentChoices);
   const [hover, setHover] = useState<{ race: Race; x: number; y: number } | null>(null);
   const race = RACES.find((item) => item.id === selectedId) ?? RACES[0];
   const families = [...new Set(RACES.map((item) => item.family))];
@@ -106,27 +109,51 @@ function RacePicker({ open, currentId, onOpenChange, onApply }: {
         {race.special && <div className="special-banner">Особый персонаж <small>требуется согласование с мастером</small></div>}
         <h2>{race.name}</h2>{race.subtitle && <p className="race-subtitle">{race.subtitle}</p>}<p>{race.description}</p>
         <div className="race-columns"><div><h4>Преимущества</h4><ul>{race.advantages.map((item) => <li key={item}>{item}</li>)}</ul></div><div><h4>Недостатки</h4><ul>{race.disadvantages.map((item) => <li key={item}>{item}</li>)}</ul></div></div>
-        <p className="race-budget">Склонности: <strong>{race.aptitudeBudget} очков</strong>{Boolean(race.freeAptitudePoints) && <span> · свободно распределяются: {race.freeAptitudePoints}</span>}</p>
+        <p className="race-budget">Склонности: <strong>{race.unrestricted ? "без ограничений" : `${race.aptitudeBudget} очков`}</strong>{Boolean(race.freeAptitudePoints) && <span> · свободно распределяются: {race.freeAptitudePoints}</span>}</p>
+        {race.unrestricted && <label className="custom-race-name"><span>Название своей расы</span><input value={choices["custom-name"] ?? ""} maxLength={80} placeholder="Например: Звёздный народ" onChange={(event) => setChoices((current) => ({ ...current, "custom-name": event.target.value }))} /></label>}
         {race.choices?.map((choice) => <div className="race-choice" key={choice.id}><span>{choice.label}</span><Select value={choices[choice.id] ?? ""} onValueChange={(value) => setChoices((current) => ({ ...current, [choice.id]: value }))}><SelectTrigger aria-label={choice.label}><SelectValue placeholder="Выберите…" /></SelectTrigger><SelectContent className="race-select-content">{choice.options.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent></Select></div>)}
       </article>
     </div>
-    <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Отмена</Button><Button className="fantasy-button" disabled={Boolean(race.choices?.some((choice) => !choices[choice.id]))} onClick={() => onApply(race, choices)}>Применить расу</Button></DialogFooter>
+    <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Отмена</Button><Button className="fantasy-button" disabled={Boolean(race.choices?.some((choice) => !choices[choice.id])) || Boolean(race.unrestricted && !choices["custom-name"]?.trim())} onClick={() => onApply(race, choices)}>Применить расу</Button></DialogFooter>
     {hover && <div className="race-hover" style={{ left: hover.x, top: hover.y }}><strong>{hover.race.name}</strong><span>{hover.race.subtitle}</span><p>{hover.race.summary}</p></div>}
   </DialogContent></Dialog>;
 }
 
 function CharacteristicCard({ character, id, onChange }: { character: Character; id: CharacteristicId; onChange: (character: Character) => void }) {
+  type CharacteristicRoll = SkillCheckOutcome & { serial: number; delivery: "idle" | "sending" | "sent" | "error" };
+  const [check, setCheck] = useState<CharacteristicRoll | null>(null);
   const item = character.characteristics[id];
   const adjustedValue = fatiguedCharacteristicValue(character, id);
   const adjustedBonus = fatiguedBonus(character, id);
+  const effectiveModifier = fatiguedEffectiveBonus(character, id);
+  const threshold = adjustedValue + effectiveModifier;
   const effect = fatigueEffect(character, id);
   const multiplier = supernaturalMultiplier(character, id);
   const updateItem = (patch: Partial<typeof item>) => onChange({ ...character, characteristics: { ...character.characteristics, [id]: { ...item, ...patch } } });
-  return <article className={`characteristic-card ${effect !== "none" ? `fatigue-affected fatigue-${effect}` : ""}`}><header><span>{item.label}</span><abbr title={item.label}>{item.short}</abbr></header><div className="characteristic-body">
+  const rollCharacteristic = () => {
+    const result = rollDie(100);
+    const serial = Date.now() + Math.random();
+    const outcome = evaluateSkillCheck(threshold, result);
+    const discord = loadDiscordSettings(character.characterId);
+    setCheck({ ...outcome, serial, delivery: discordIsConnected(discord) ? "sending" : "idle" });
+    if (!discordIsConnected(discord)) return;
+    void createCharacterThumbnail(character).then((avatar) => sendDiscordRoll({
+      webhookUrl: discord.webhookUrl,
+      characterName: character.name.trim() || "Безымянный персонаж",
+      avatar,
+      kind: "characteristic",
+      sides: 100,
+      result,
+      characteristicName: item.label,
+      threshold,
+    })).then(() => setCheck((current) => current?.serial === serial ? { ...current, delivery: "sent" } : current))
+      .catch(() => setCheck((current) => current?.serial === serial ? { ...current, delivery: "error" } : current));
+  };
+  return <article className={`characteristic-card ${effect !== "none" ? `fatigue-affected fatigue-${effect}` : ""}`}><header><span className="characteristic-name">{item.label}<button type="button" className="characteristic-roll-button" aria-label={`Проверка характеристики: ${item.label}`} title={`Бросить d100 против ${threshold}`} onClick={rollCharacteristic}><Dices /></button></span><abbr title={item.label}>{item.short}</abbr></header><div className="characteristic-body">
     <label className="characteristic-value"><span>Значение</span><span className="characteristic-input-wrap"><input type="number" min="0" value={item.value === 0 ? "" : item.value} placeholder="0" onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateItem({ value: event.target.value === "" ? 0 : Number(event.target.value) })} />{effect !== "none" && <span className="fatigue-value-card" aria-live="polite"><small>{effect === "zero" ? "Истощение" : "Усталость"}</small><strong>{adjustedValue}</strong></span>}</span></label>
-    <span className="bonus-pill" title={effect !== "none" ? "Бонус пересчитан с учётом усталости" : multiplier > 1 ? `Сверхъестественный множитель ×${multiplier}` : undefined}>Бонус {fatiguedEffectiveBonus(character, id)}{multiplier > 1 ? ` (${adjustedBonus}×${multiplier})` : ""}</span>
+    <span className="bonus-pill" title={effect !== "none" ? "Бонус пересчитан с учётом усталости" : multiplier > 1 ? `Сверхъестественный множитель ×${multiplier}` : undefined}>Бонус {effectiveModifier}{multiplier > 1 ? ` (${adjustedBonus}×${multiplier})` : ""}</span>
     <div className="advance-vertical" aria-label={`Развитие: ${item.advances} из 5`}>{[1, 2, 3, 4, 5].map((step) => <button key={step} className={step <= item.advances ? "active" : ""} aria-label={`${step} ступень развития`} onClick={() => { const next = item.advances === step ? step - 1 : step; updateItem({ advances: next, value: Math.max(0, item.value + (next - item.advances) * 5) }); }} />)}</div>
-  </div></article>;
+  </div>{check && <output className={`characteristic-roll-result ${check.passed ? "passed" : "failed"}`} aria-live="polite"><strong>{check.roll}</strong><span>{check.text}</span>{check.delivery !== "idle" && <small className={check.delivery}>{check.delivery === "sending" && <><LoaderCircle className="spin" /> Discord…</>}{check.delivery === "sent" && <><CheckCircle2 /> Отправлено</>}{check.delivery === "error" && <><AlertTriangle /> Не отправлено</>}</small>}</output>}</article>;
 }
 
 function SkillsTable({ character, onChange }: { character: Character; onChange: (character: Character) => void }) {
@@ -183,10 +210,12 @@ function TextList({ title, values, onChange }: { title: string; values: string[]
 
 function FrontPage({ character, onChange, onRaceOpen }: { character: Character; onChange: (character: Character) => void; onRaceOpen: () => void }) {
   const currentRace = RACES.find((race) => race.id === character.raceId) ?? RACES[0];
+  const unrestrictedRace = currentRace.unrestricted === true;
+  const raceName = unrestrictedRace ? character.raceChoices["custom-name"]?.trim() || currentRace.name : currentRace.name;
   const automaticSpent = spentExperience(character);
   const spent = recordedSpentExperience(character);
   const aptitudeSpent = Object.values(character.aptitudes).reduce((sum, value) => sum + value, 0);
-  const aptitudeBudget = character.freeAptitudes
+  const aptitudeBudget = character.freeAptitudes && !unrestrictedRace
     ? independentAptitudeBudget(currentRace)
     : currentRace.aptitudeBudget;
   const aptitudesDirty = CHARACTERISTICS.some(({ id }) => character.aptitudes[id] !== (character.appliedAptitudes?.[id] ?? character.racialAptitudes[id]));
@@ -194,18 +223,18 @@ function FrontPage({ character, onChange, onRaceOpen }: { character: Character; 
   return <div className="sheet-page front-page">
     <section className="identity-grid panel" data-tutorial="identity">
       <AvatarEditor avatar={character.avatar} crop={character.avatarCrop} name={character.name} onChange={(avatar, avatarCrop) => onChange({ ...character, avatar, avatarCrop })} onRemove={() => onChange({ ...character, avatar: "", avatarCrop: { x: 0, y: 0, zoom: 1 } })} />
-      <div className="identity-main"><Field label="Имя персонажа" value={character.name} onChange={(value) => update("name", value)} /><button className="race-field" data-tutorial="race" onClick={onRaceOpen}><span>Раса</span><strong>{currentRace.name}</strong><ChevronRight /></button><div className="field-pair"><Field label="Предыстория" value={character.background} onChange={(value) => update("background", value)} /><Field label="Роль" value={character.role} onChange={(value) => update("role", value)} /></div><Field label="Заметки" value={character.notes} onChange={(value) => update("notes", value)} multiline /></div>
+      <div className="identity-main"><Field label="Имя персонажа" value={character.name} onChange={(value) => update("name", value)} /><button className="race-field" data-tutorial="race" onClick={onRaceOpen}><span>Раса</span><strong>{raceName}</strong><ChevronRight /></button><div className="field-pair"><Field label="Предыстория" value={character.background} onChange={(value) => update("background", value)} /><Field label="Роль" value={character.role} onChange={(value) => update("role", value)} /></div><Field label="Заметки" value={character.notes} onChange={(value) => update("notes", value)} multiline /></div>
       <div className="identity-side"><Field label="Имя игрока" value={character.player} onChange={(value) => update("player", value)} /><div className="field-pair"><Field label="Возраст" value={character.age} onChange={(value) => update("age", value)} /><label className="ink-field gender-field"><span>Пол</span><Select value={character.gender} onValueChange={(value) => update("gender", value as Character["gender"])}><SelectTrigger aria-label="Пол"><SelectValue /></SelectTrigger><SelectContent className="gender-select-content"><SelectItem value="female">Женщина</SelectItem><SelectItem value="male">Мужчина</SelectItem></SelectContent></Select></label></div><div className="field-pair"><Field label="Глаза" value={character.eyes} onChange={(value) => update("eyes", value)} /><Field label="Волосы" value={character.hair} onChange={(value) => update("hair", value)} /></div><div className="field-pair"><Field label="Кожа" value={character.skin} onChange={(value) => update("skin", value)} /><Field label="Комплекция" value={character.build} onChange={(value) => update("build", value)} /></div><Field label="Союзники" value={character.allies} onChange={(value) => update("allies", value)} /><Field label="Враги" value={character.enemies} onChange={(value) => update("enemies", value)} /></div>
     </section>
     <div className="front-main-grid"><div className="front-left">
       <section className="panel aptitudes-panel" data-tutorial="aptitudes">
-        <div className="section-heading aptitudes-heading"><h2>Склонности</h2><span>{aptitudeSpent} / {aptitudeBudget} · свободно {Math.max(0, aptitudeBudget - aptitudeSpent)}</span>{character.freeAptitudes && <Button size="xs" className="apply-aptitudes" disabled={!aptitudesDirty || aptitudeSpent !== aptitudeBudget} title={aptitudeSpent !== aptitudeBudget ? "Сначала распределите все очки склонностей" : "Пересчитать характеристики"} onClick={() => onChange(applyAptitudeCharacteristics(character, currentRace))}><Check /> Применить</Button>}</div>
-        <label className="free-toggle"><Checkbox checked={character.freeAptitudes} onCheckedChange={(checked) => {
+        <div className="section-heading aptitudes-heading"><h2>Склонности</h2><span>{unrestrictedRace ? `${aptitudeSpent} · без лимита` : `${aptitudeSpent} / ${aptitudeBudget} · свободно ${Math.max(0, aptitudeBudget - aptitudeSpent)}`}</span>{character.freeAptitudes && !unrestrictedRace && <Button size="xs" className="apply-aptitudes" disabled={!aptitudesDirty || aptitudeSpent !== aptitudeBudget} title={aptitudeSpent !== aptitudeBudget ? "Сначала распределите все очки склонностей" : "Пересчитать характеристики"} onClick={() => onChange(applyAptitudeCharacteristics(character, currentRace))}><Check /> Применить</Button>}</div>
+        {!unrestrictedRace && <label className="free-toggle"><Checkbox checked={character.freeAptitudes} onCheckedChange={(checked) => {
           const enabled = checked === true;
           if (enabled) onChange(beginIndependentAptitudeDistribution(character));
           else onChange(applyAptitudeCharacteristics({ ...character, freeAptitudes: false, aptitudes: { ...character.racialAptitudes } }, currentRace));
-        }} /> Полностью самостоятельное распределение</label>
-        {character.freeAptitudes && <p className="aptitude-hint">Расовые точки сняты, а общий запас уменьшен на 1. Распределите все очки; характеристики изменятся после кнопки «Применить».</p>}
+        }} /> Полностью самостоятельное распределение</label>}
+        {unrestrictedRace ? <p className="aptitude-hint custom-race-hint">У своей расы нет общего лимита: каждую склонность можно свободно выставить до двух точек. Характеристики настраиваются отдельно.</p> : character.freeAptitudes && <p className="aptitude-hint">Расовые точки сняты, а общий запас уменьшен на 1. Распределите все очки; характеристики изменятся после кнопки «Применить».</p>}
         <div className="aptitudes-grid">{CHARACTERISTICS.map((item) => <div key={item.id}><span>{item.label}</span><div>{[1, 2].map((level) => {
           const locked = !character.freeAptitudes && level <= character.racialAptitudes[item.id];
           return <button key={level} className={`${character.aptitudes[item.id] >= level ? "active" : ""} ${locked ? "locked" : ""}`} title={locked ? "Расовая склонность" : "Свободное очко"} disabled={locked} onClick={() => {
@@ -213,7 +242,7 @@ function FrontPage({ character, onChange, onRaceOpen }: { character: Character; 
             const minimum = character.freeAptitudes ? 0 : character.racialAptitudes[item.id];
             const next = Math.max(minimum, current === level ? level - 1 : level);
             const proposed = aptitudeSpent - current + next;
-            if (proposed <= aptitudeBudget) update("aptitudes", { ...character.aptitudes, [item.id]: next });
+            if (unrestrictedRace || proposed <= aptitudeBudget) update("aptitudes", { ...character.aptitudes, [item.id]: next });
           }} />;
         })}</div></div>)}</div>
       </section>
@@ -224,7 +253,7 @@ function FrontPage({ character, onChange, onRaceOpen }: { character: Character; 
       <div className="dual-mini"><TextList title="Ментальные расстройства" values={character.disorders} onChange={(values) => update("disorders", values)} /><TextList title="Рудименты и мутации" values={character.mutations} onChange={(values) => update("mutations", values)} /></div>
       <section className="panel counters-panel"><NumberField label="Безумие" value={character.insanity} onChange={(value) => update("insanity", value)} /><OptionalNumberField label="Порча" value={character.corruption} onChange={(value) => update("corruption", value)} /><div className="fate-pair"><NumberField label="Судьба" value={character.fateCurrent} onChange={(value) => update("fateCurrent", value)} /><span>/</span><NumberField label="Максимум" value={character.fateMax} onChange={(value) => update("fateMax", value)} /></div><NumberField label="Бездна" value={character.abyss} onChange={(value) => update("abyss", value)} /></section>
       <section className="panel front-derived-panel">
-        <div className="front-stat-box"><h3>Раны</h3><div className="front-stat-fields"><NumberField label="Сейчас" value={character.woundsCurrent} onChange={(value) => update("woundsCurrent", value)} /><CalculatedNumber label="Всего" value={character.woundsTotal} /></div></div>
+        <div className="front-stat-box"><h3>Раны</h3><div className="front-stat-fields"><NumberField label="Сейчас" value={character.woundsCurrent} onChange={(value) => update("woundsCurrent", value)} />{unrestrictedRace ? <NumberField label="Всего" value={character.woundsTotal} onChange={(value) => update("woundsTotal", value)} /> : <CalculatedNumber label="Всего" value={character.woundsTotal} />}</div></div>
         <div className="front-stat-box experience-box"><h3>Опыт</h3><div className="front-stat-fields"><NumberField label="Получено" value={character.experienceEarned} onChange={(value) => update("experienceEarned", value)} /><NumberField label="Потрачено" value={spent} onChange={(value) => update("experienceSpentOverride", value)} /></div><dl><div><dt>По развитию</dt><dd>{automaticSpent}</dd></div><div><dt>Доступно</dt><dd className={character.experienceEarned - spent < 0 ? "negative" : ""}>{character.experienceEarned - spent}</dd></div></dl>{character.experienceSpentOverride !== null && <button className="experience-auto-reset" onClick={() => update("experienceSpentOverride", null)} title="Снова считать потраченный опыт автоматически"><RotateCcw /> Вернуть авторасчёт</button>}</div>
         <div className="front-stat-box natural-armor-box"><h3>Естественная броня</h3><NumberField label="КД" value={character.naturalArmor} onChange={(value) => update("naturalArmor", value)} /><p className="formula-note"><Shield /> все зоны</p></div>
       </section>
@@ -309,7 +338,9 @@ export default function CharacterSheetApp() {
   }, [tutorialStep, page]);
 
   const currentRace = useMemo(() => RACES.find((race) => race.id === character.raceId) ?? RACES[0], [character.raceId]);
+  const currentRaceName = currentRace.unrestricted ? character.raceChoices["custom-name"]?.trim() || currentRace.name : currentRace.name;
   useEffect(() => {
+    if (currentRace.unrestricted) return;
     const total = calculateRaceWounds(character, currentRace);
     const naturalArmor = calculateNaturalArmor(character, currentRace);
     // These values are persisted for export, so keep the stored snapshot in sync with its formula.
@@ -360,11 +391,11 @@ export default function CharacterSheetApp() {
   </>;
 
   return <main className="workspace-shell">
-    <header className="toolbar"><Button variant="ghost" size="sm" onClick={() => setScreen("start")}><BookOpen /> Главное меню</Button><span className="toolbar-divider" /><span className="character-title">{character.name || "Безымянный персонаж"} <small>· {currentRace.name}</small></span><div className="toolbar-actions"><span className="save-status"><Save /> {lastSavedAt ? `Автосохранено ${new Date(lastSavedAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "Сохранение…"}</span><Button data-tutorial="save" variant="outline" size="sm" onClick={() => downloadCharacter(character)}><Download /> Сохранить JSON</Button><label className="toolbar-load"><FileUp /><span>Загрузить</span><input type="file" accept="application/json,.json" onChange={loadJson} /></label><Button size="icon-sm" variant="ghost" aria-label="Открыть обучение" onClick={() => { setPage("front"); setTutorialStep(0); }}><CircleHelp /></Button></div></header>
+    <header className="toolbar"><Button variant="ghost" size="sm" onClick={() => setScreen("start")}><BookOpen /> Главное меню</Button><span className="toolbar-divider" /><span className="character-title">{character.name || "Безымянный персонаж"} <small>· {currentRaceName}</small></span><div className="toolbar-actions"><span className="save-status"><Save /> {lastSavedAt ? `Автосохранено ${new Date(lastSavedAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "Сохранение…"}</span><Button data-tutorial="save" variant="outline" size="sm" onClick={() => downloadCharacter(character)}><Download /> Сохранить JSON</Button><label className="toolbar-load"><FileUp /><span>Загрузить</span><input type="file" accept="application/json,.json" onChange={loadJson} /></label><Button size="icon-sm" variant="ghost" aria-label="Открыть обучение" onClick={() => { setPage("front"); setTutorialStep(0); }}><CircleHelp /></Button></div></header>
     <div className={`sheet-scene book-scene show-${page} ${isTurning ? "turning" : ""}`}><div className="book-cover" aria-hidden="true" /><div className={`sheet-paper ${turnPhase ? `page-turn-${turnPhase} ${turnDirection}` : ""}`}>{page === "front" ? <FrontPage character={character} onChange={setCharacter} onRaceOpen={() => setRaceOpen(true)} /> : page === "back" ? <BackPage character={character} onChange={setCharacter} /> : <NotesPage character={character} onChange={setCharacter} />}<nav className="page-bookmarks" aria-label="Страницы чарника"><button className={page === "front" ? "active" : ""} onClick={() => turnToPage("front")}>Лицевая</button><button data-tutorial="flip" className={page === "back" ? "active" : ""} onClick={() => turnToPage("back")}>Оборот</button><button className={page === "notes" ? "active" : ""} onClick={() => turnToPage("notes")}>Заметки</button></nav></div></div>
     <DiceRoller character={character} />
     <button className="breakthrough-button" onClick={() => setBreakthroughsOpen(true)}><Moon /><span>Прорывы</span><strong>{character.breakthroughs.length}</strong></button>
-    <RacePicker key={`${character.raceId}-${raceOpen}`} open={raceOpen} currentId={character.raceId} onOpenChange={setRaceOpen} onApply={applyRace} />
+    <RacePicker key={`${character.raceId}-${raceOpen}`} open={raceOpen} currentId={character.raceId} currentChoices={character.raceChoices} onOpenChange={setRaceOpen} onApply={applyRace} />
     <Sheet open={breakthroughsOpen} onOpenChange={setBreakthroughsOpen}><SheetContent className="breakthrough-sheet"><SheetHeader><SheetTitle>Прорывы</SheetTitle><SheetDescription>Краткие записи о каждом прорыве персонажа.</SheetDescription></SheetHeader><div className="breakthrough-list">{character.breakthroughs.map((item) => <article key={item.id}><header><strong>№ {item.number}</strong><button onClick={() => setCharacter({ ...character, breakthroughs: character.breakthroughs.filter((current) => current.id !== item.id) })}><Trash2 /></button></header><textarea value={item.description} onChange={(event) => setCharacter({ ...character, breakthroughs: character.breakthroughs.map((current) => current.id === item.id ? { ...current, description: event.target.value } : current) })} placeholder="Описание…" /></article>)}</div><Button onClick={() => setCharacter({ ...character, breakthroughs: [...character.breakthroughs, { id: uid("breakthrough"), number: character.breakthroughs.length + 1, description: "" }] })}><Plus /> Добавить прорыв</Button></SheetContent></Sheet>
     {fatigueState && <button className={`fatigue-overlay ${fatigueState}`} onClick={() => setFatigueState(null)}><span className="fatigue-icon">{fatigueState === "dead" ? <Skull /> : <><HeartPulse /><i>z z z</i></>}</span><strong>{fatigueState === "dead" ? "Вы умерли от истощения" : "Вы без сознания от истощения"}</strong><small>Нажмите, чтобы закрыть</small></button>}
     {tutorial && <TutorialGuide tutorial={tutorial} step={tutorialStep!} total={TUTORIAL.length} onStepChange={setTutorialStep} onClose={() => setTutorialStep(null)} />}

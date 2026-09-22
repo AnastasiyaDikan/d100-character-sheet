@@ -157,6 +157,24 @@ test("separates weapon and shield parry modifiers", async () => {
   assert.equal(rules.combatActionValues(character, shieldParry)[0].value, 112);
 });
 
+test("adds the weapon modifier only to weapon interactions", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  const character = {
+    ...base,
+    characteristics: { ...base.characteristics, melee: { ...base.characteristics.melee, value: 70 } },
+    skills: base.skills.map((skill) => skill.id === "parry" ? { ...skill, level: 1 } : skill),
+    combatSettings: { ...base.combatSettings, weaponModifier: 5, counterattack: true },
+  };
+  const value = (id) => rules.combatActionValues(character, rules.COMBAT_ACTIONS.find((action) => action.id === id))[0].value;
+  assert.equal(value("standard-attack"), 92);
+  assert.equal(value("counterattack"), 62);
+  assert.equal(value("parry-weapon"), 82);
+  assert.equal(value("parry-shield"), 77);
+  assert.equal(value("grapple"), 77);
+  assert.equal(value("knock-down"), 32);
+});
+
 test("copies parry and dodge ranks from the sheet but allows combat overrides", async () => {
   const rules = await loadRules();
   const base = rules.createCharacter();
@@ -274,6 +292,11 @@ test("accepts only Discord webhook URLs and builds safe roll embeds", async () =
   assert.equal(combatPayload.embeds[0].title, "Боевое действие «Стандартная атака» — НР");
   assert.match(combatPayload.embeds[0].description, /Порог — 87/);
   assert.equal(rules.validDiscordRoll({ kind: "combat", sides: 100, result: 31, actionName: "Стандартная атака", checkLabel: "НР", threshold: 87 }), true);
+  const characteristicPayload = rules.discordMessagePayload({ characterName: "Лиза Ашвинг", kind: "characteristic", sides: 100, result: 31, characteristicName: "Сила", threshold: 47 }, true);
+  assert.equal(characteristicPayload.embeds[0].title, "Проверка характеристики «Сила» d100");
+  assert.match(characteristicPayload.embeds[0].description, /Порог — 47/);
+  assert.equal(rules.validDiscordRoll({ kind: "characteristic", sides: 100, result: 31, characteristicName: "Сила", threshold: 47 }), true);
+  assert.equal(rules.validDiscordRoll({ kind: "characteristic", sides: 100, result: 31, characteristicName: "", threshold: 47 }), false);
 });
 
 test("calculates d100 skill successes, failures and critical results", async () => {

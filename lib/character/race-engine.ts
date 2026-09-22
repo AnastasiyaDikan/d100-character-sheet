@@ -50,6 +50,7 @@ export function beginIndependentAptitudeDistribution(character: Character): Char
 }
 
 export function applyAptitudeCharacteristics(character: Character, race: Race): Character {
+  if (race.unrestricted) return { ...character, appliedAptitudes: { ...character.aptitudes } };
   const effects = selectedEffects(race, character.raceChoices ?? {});
   const characteristicBonuses = mergeNumbers({}, effects.map((effect) => effect.characteristicBonuses), "add");
   const scale = race.characteristicScale ?? [15, 20, 25];
@@ -95,11 +96,14 @@ export function applyRace(character: Character, race: Race, choices: Record<stri
     aptitudes: { ...racialAptitudes },
     racialAptitudes,
     appliedAptitudes: { ...racialAptitudes },
-    freeAptitudes: false,
+    freeAptitudes: race.unrestricted === true,
     corruption: corruptionFromChoice !== undefined ? corruptionFromChoice : (race.corruption ?? null),
     naturalArmor: effects.findLast((effect) => effect.naturalArmor !== undefined)?.naturalArmor ?? race.naturalArmor ?? 0,
     talents: [...character.talents.filter((talent) => talent.source !== "race"), ...racialTraits],
   };
+  if (race.unrestricted) {
+    return { ...next, woundsTotal: race.wounds ?? 10, woundsCurrent: race.wounds ?? 10 };
+  }
   if (race.naturalArmorFormula) next = { ...next, naturalArmor: calculateNaturalArmor(next, race) };
   const woundsTotal = calculateRaceWounds(next, race);
   return { ...next, woundsTotal, woundsCurrent: woundsTotal };
