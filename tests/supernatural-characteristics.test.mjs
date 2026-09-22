@@ -6,12 +6,13 @@ async function loadRules() {
   const entry = `
     export { createCharacter, RACES } from ${JSON.stringify(new URL("../lib/character/data.ts", import.meta.url).pathname)};
     export { applyRace, calculateNaturalArmor, calculateRaceWounds } from ${JSON.stringify(new URL("../lib/character/race-engine.ts", import.meta.url).pathname)};
-    export { carrying, effectiveBonus, experienceCost, fatigueEffect, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillModifier, skillThreshold, spentExperience, supernaturalMultiplier, zoneDefense } from ${JSON.stringify(new URL("../lib/character/calculations.ts", import.meta.url).pathname)};
+    export { carrying, effectiveBonus, experienceCost, fatigueEffect, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillModifier, skillThreshold, spentExperience, supernaturalBonus, supernaturalMultiplier, zoneDefense } from ${JSON.stringify(new URL("../lib/character/calculations.ts", import.meta.url).pathname)};
     export { COMBAT_ACTIONS, combatActionValues, selectedCombatRank } from ${JSON.stringify(new URL("../lib/character/combat.ts", import.meta.url).pathname)};
     export { normalizeCharacter } from ${JSON.stringify(new URL("../lib/character/storage.ts", import.meta.url).pathname)};
     export { DICE_SIDES, rollDie } from ${JSON.stringify(new URL("../lib/character/dice.ts", import.meta.url).pathname)};
     export { discordMessagePayload, parseDiscordWebhookUrl, validDiscordRoll } from ${JSON.stringify(new URL("../lib/character/discord.ts", import.meta.url).pathname)};
     export { evaluateSkillCheck } from ${JSON.stringify(new URL("../lib/character/skill-check.ts", import.meta.url).pathname)};
+    export { parseWeaponDamage, rollWeaponDamage, selectedWeaponDamage, weaponDamageModes } from ${JSON.stringify(new URL("../lib/character/weapon-damage.ts", import.meta.url).pathname)};
   `;
   const result = await build({ stdin: { contents: entry, loader: "ts", resolveDir: process.cwd() }, bundle: true, platform: "node", format: "esm", write: false });
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
@@ -33,7 +34,7 @@ test("multiplies all secondary values derived from supernatural endurance", asyn
       endurance: { ...base.characteristics.endurance, value: 40 },
       willpower: { ...base.characteristics.willpower, value: 30 },
     },
-    talents: [talent("Сверхчеловеческая Выносливость/Телосложение (3)")],
+    talents: [talent("Сверхчеловеческая Выносливость/Телосложение (x3)")],
     skills: [...base.skills, { id: "endurance-test", label: "Стойкость", characteristic: "endurance", level: 1 }],
   };
 
@@ -64,9 +65,9 @@ test("recognizes misspelling and grouped supernatural characteristics", async ()
     ],
   };
 
-  assert.equal(rules.effectiveBonus(character, "strength"), 6);
-  assert.equal(rules.effectiveBonus(character, "endurance"), 6);
-  assert.deepEqual(rules.movement(character), { free: 6, halfAction: 12, charge: 18, run: 36 });
+  assert.equal(rules.effectiveBonus(character, "strength"), 5);
+  assert.equal(rules.effectiveBonus(character, "endurance"), 5);
+  assert.deepEqual(rules.movement(character), { free: 5, halfAction: 10, charge: 15, run: 30 });
 });
 
 test("uses the greatest supernatural multiplier instead of stacking talents", async () => {
@@ -75,9 +76,23 @@ test("uses the greatest supernatural multiplier instead of stacking talents", as
   const base = rules.applyRace(rules.createCharacter(), race, {});
   const character = {
     ...base,
-    talents: [talent("Сверхъестественная сила (2)"), talent("Сверхъестественная сила (4)")],
+    talents: [talent("Сверхъестественная сила (x2)"), talent("Сверхъестественная сила (×4)")],
   };
   assert.equal(rules.supernaturalMultiplier(character, "strength"), 4);
+});
+
+test("treats a plain supernatural value as addition and x as multiplication", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  const strength40 = { ...base, characteristics: { ...base.characteristics, strength: { ...base.characteristics.strength, value: 40 } } };
+  const additive = { ...strength40, talents: [talent("Сверхъестественная сила (3)")] };
+  const multiplied = { ...strength40, talents: [talent("Сверхъестественная сила (x3)")] };
+  assert.equal(rules.supernaturalBonus(additive, "strength"), 3);
+  assert.equal(rules.supernaturalMultiplier(additive, "strength"), 1);
+  assert.equal(rules.effectiveBonus(additive, "strength"), 7);
+  assert.equal(rules.supernaturalBonus(multiplied, "strength"), 0);
+  assert.equal(rules.supernaturalMultiplier(multiplied, "strength"), 3);
+  assert.equal(rules.effectiveBonus(multiplied, "strength"), 12);
 });
 
 test("fatigue halves and then nullifies characteristics using the ordinary bonus", async () => {
@@ -95,8 +110,8 @@ test("fatigue halves and then nullifies characteristics using the ordinary bonus
   const tired = makeCharacter(2);
   assert.equal(rules.fatigueEffect(tired, "melee"), "halved");
   assert.equal(rules.fatiguedCharacteristicValue(tired, "melee"), 10);
-  assert.equal(rules.fatiguedEffectiveBonus(tired, "melee"), 3);
-  assert.equal(rules.skillThreshold(tired, "melee-test"), 13);
+  assert.equal(rules.fatiguedEffectiveBonus(tired, "melee"), 4);
+  assert.equal(rules.skillThreshold(tired, "melee-test"), 14);
   assert.equal(rules.zoneDefense(tired, "body"), 1);
   assert.deepEqual(rules.movement(tired), { free: 1, halfAction: 2, charge: 3, run: 6 });
   assert.equal(rules.fatigueThreshold(tired), 4, "the fatigue threshold itself must not fall");
@@ -175,6 +190,32 @@ test("adds the weapon modifier only to weapon interactions", async () => {
   assert.equal(value("knock-down"), 32);
 });
 
+test("parses dual weapon damage and adds critical dice plus the selected characteristic", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  const character = {
+    ...base,
+    characteristics: { ...base.characteristics, agility: { ...base.characteristics.agility, value: 50 } },
+  };
+  const weapon = {
+    id: "sword", name: "Полуторный клинок", weaponClass: "", range: "", rate: "", damage: "к8/d10+2",
+    penetration: "", magazine: "", reload: "", properties: "", collapsed: false, active: true, damageCharacteristic: "agility", damageMode: 1,
+  };
+  assert.deepEqual(rules.weaponDamageModes(weapon.damage), ["к8", "d10+2"]);
+  assert.deepEqual(rules.parseWeaponDamage("2к8+3"), { diceCount: 2, sides: 8, fixedModifier: 3 });
+  assert.equal(rules.selectedWeaponDamage(weapon), "d10+2");
+  const outcome = { roll: 20, threshold: 120, passed: true, critical: null, successes: 10, failures: 0, text: "" };
+  const damage = rules.rollWeaponDamage(character, weapon, outcome);
+  assert.equal(damage.diceCount, 3);
+  assert.equal(damage.sides, 10);
+  assert.equal(damage.characteristicModifier, 5);
+  assert.equal(damage.fixedModifier, 2);
+  assert.equal(damage.total, damage.rolls.reduce((sum, value) => sum + value, 0) + 7);
+  const critical = rules.rollWeaponDamage(character, { ...weapon, damage: "d8", damageMode: 0 }, { ...outcome, roll: 1, successes: 15, critical: "success" });
+  assert.equal(critical.diceCount, 5);
+  assert.ok(critical.rolls.every((roll) => roll >= 1 && roll <= 8));
+});
+
 test("copies parry and dodge ranks from the sheet but allows combat overrides", async () => {
   const rules = await loadRules();
   const base = rules.createCharacter();
@@ -196,6 +237,8 @@ test("adds combat defaults to old saves and preserves valid combat choices", asy
   const configured = { ...base, combatSettings: { ...base.combatSettings, expert: true, parryRank: 5, shieldEnabled: true, shieldBonus: 12 } };
   assert.deepEqual(rules.normalizeCharacter(configured).combatSettings, configured.combatSettings);
   assert.equal(rules.normalizeCharacter({ ...configured, journal: "Запись в журнале" }).journal, "Запись в журнале");
+  const legacyWeapon = { id: "old", name: "Старый клинок", weaponClass: "", range: "", rate: "", damage: "d8", penetration: "", magazine: "", reload: "", properties: "", collapsed: false };
+  assert.deepEqual(rules.normalizeCharacter({ ...configured, weapons: [legacyWeapon] }).weapons[0], { ...legacyWeapon, active: false, damageCharacteristic: "strength", damageMode: 0 });
 });
 
 test("prices the +40 skill rank as the first purchase", async () => {
@@ -292,6 +335,11 @@ test("accepts only Discord webhook URLs and builds safe roll embeds", async () =
   assert.equal(combatPayload.embeds[0].title, "Боевое действие «Стандартная атака» — НР");
   assert.match(combatPayload.embeds[0].description, /Порог — 87/);
   assert.equal(rules.validDiscordRoll({ kind: "combat", sides: 100, result: 31, actionName: "Стандартная атака", checkLabel: "НР", threshold: 87 }), true);
+  const damage = { weaponName: "Клинок", expression: "d8", diceCount: 3, sides: 8, rolls: [2, 5, 7], characteristic: "agility", characteristicModifier: 5, fixedModifier: 0, total: 19 };
+  const damagePayload = rules.discordMessagePayload({ characterName: "Лиза Ашвинг", kind: "combat", sides: 100, result: 13, actionName: "Стандартная атака", checkLabel: "НР", threshold: 89, damage }, true);
+  assert.match(damagePayload.embeds[0].description, /Урон — Клинок/);
+  assert.match(damagePayload.embeds[0].description, /3d8: 2 \+ 5 \+ 7 \+ 5 = \*\*19\*\*/);
+  assert.equal(rules.validDiscordRoll({ kind: "combat", sides: 100, result: 13, actionName: "Стандартная атака", checkLabel: "НР", threshold: 89, damage }), true);
   const characteristicPayload = rules.discordMessagePayload({ characterName: "Лиза Ашвинг", kind: "characteristic", sides: 100, result: 31, characteristicName: "Сила", threshold: 47 }, true);
   assert.equal(characteristicPayload.embeds[0].title, "Проверка характеристики «Сила» d100");
   assert.match(characteristicPayload.embeds[0].description, /Порог — 47/);

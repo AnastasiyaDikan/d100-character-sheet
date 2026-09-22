@@ -1,7 +1,7 @@
 "use client";
 
 import { Shield } from "lucide-react";
-import { bonus, effectiveBonus, fatiguedEffectiveBonus, supernaturalMultiplier, zoneDefense } from "@/lib/character/calculations";
+import { bonus, effectiveBonus, fatiguedEffectiveBonus, supernaturalBonus, supernaturalMultiplier, zoneDefense } from "@/lib/character/calculations";
 import type { Character, HitZone } from "@/lib/character/types";
 
 const ZONES: Array<{ id: HitZone; short: string; label: string }> = [
@@ -16,10 +16,11 @@ const ZONES: Array<{ id: HitZone; short: string; label: string }> = [
 export default function BodyMap({ character }: { character: Character }) {
   const baseEnduranceBonus = bonus(character, "endurance");
   const enduranceMultiplier = supernaturalMultiplier(character, "endurance");
+  const enduranceAdditive = supernaturalBonus(character, "endurance");
   const normalEnduranceBonus = effectiveBonus(character, "endurance");
   const currentEnduranceBonus = fatiguedEffectiveBonus(character, "endurance");
   return <section className="panel hit-map" data-tutorial="hit-map">
-    <div className="section-heading"><h2>Карта попаданий</h2><span>{character.gender === "female" ? "Женщина" : "Мужчина"} · БВ {currentEnduranceBonus}{currentEnduranceBonus !== normalEnduranceBonus ? ` (до усталости ${normalEnduranceBonus})` : enduranceMultiplier > 1 ? ` (${baseEnduranceBonus}×${enduranceMultiplier})` : ""}</span></div>
+    <div className="section-heading"><h2>Карта попаданий</h2><span>{character.gender === "female" ? "Женщина" : "Мужчина"} · БВ {currentEnduranceBonus}{currentEnduranceBonus !== normalEnduranceBonus ? ` (до усталости ${normalEnduranceBonus})` : enduranceMultiplier > 1 && baseEnduranceBonus * enduranceMultiplier >= baseEnduranceBonus + enduranceAdditive ? ` (${baseEnduranceBonus}×${enduranceMultiplier})` : enduranceAdditive > 0 ? ` (${baseEnduranceBonus}+${enduranceAdditive})` : ""}</span></div>
     <div className="hit-map-stage">
       <img className="body-silhouette" src={character.gender === "female" ? "/silhouette-female.png" : "/silhouette-male.png"} alt={character.gender === "female" ? "Женский силуэт" : "Мужской силуэт"} />
       {ZONES.map((zone) => <div className={`zone-chip zone-${zone.id}`} key={zone.id}><span>{zone.short}</span><strong>{zoneDefense(character, zone.id)}</strong><small>{zone.label}</small></div>)}

@@ -57,6 +57,10 @@ export type Weapon = {
   reload: string;
   properties: string;
   collapsed: boolean;
+  active: boolean;
+  damageCharacteristic: "strength" | "agility";
+  /** Выбранный вариант из записи вида d8/d10. */
+  damageMode: 0 | 1;
 };
 
 export type InventoryItem = {

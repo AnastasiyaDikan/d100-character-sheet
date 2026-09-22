@@ -34,29 +34,42 @@ function descriptorIncludesCharacteristic(descriptor: string, id: Characteristic
   return aliases[id].some((alias) => normalized.includes(alias));
 }
 
-/**
- * Reads multipliers from talents such as "Сверхъестественная сила (3)".
- * Both spelling variants (сверхъестественная/сверхестественная), grouped
- * characteristics and the endurance synonyms are supported. Equal effects do
- * not stack: the greatest multiplier wins.
- */
-export function supernaturalMultiplier(character: Character, id: CharacteristicId) {
+function supernaturalEffects(character: Character, id: CharacteristicId) {
   let multiplier = 1;
+  let additive = 0;
   for (const talent of character.talents) {
     for (const text of [talent.name, talent.properties]) {
-      const matches = text.matchAll(/(?:сверхъ?естественн[а-я]*|сверхчеловеческ[а-я]*)\s+([^().;:\n]{1,100}?)\s*\(\s*(\d+(?:[.,]\d+)?)\s*\)/giu);
+      const matches = text.matchAll(/(?:сверхъ?естественн[а-я]*|сверхчеловеческ[а-я]*)\s+([^().;:\n]{1,100}?)\s*\(\s*([xх×])?\s*(\d+(?:[.,]\d+)?)\s*\)/giu);
       for (const match of matches) {
         if (!descriptorIncludesCharacteristic(match[1], id)) continue;
-        const value = Math.floor(Number(match[2].replace(",", ".")));
-        if (Number.isFinite(value)) multiplier = Math.max(multiplier, value);
+        const value = Math.floor(Number(match[3].replace(",", ".")));
+        if (!Number.isFinite(value)) continue;
+        if (match[2]) multiplier = Math.max(multiplier, value);
+        else additive = Math.max(additive, value);
       }
     }
   }
-  return multiplier;
+  return { multiplier, additive };
+}
+
+/** Запись (x3)/(×3) умножает бонус; обычная запись (3) даёт +3. */
+export function supernaturalMultiplier(character: Character, id: CharacteristicId) {
+  return supernaturalEffects(character, id).multiplier;
+}
+
+export function supernaturalBonus(character: Character, id: CharacteristicId) {
+  return supernaturalEffects(character, id).additive;
+}
+
+function applySupernatural(character: Character, id: CharacteristicId, ordinaryBonus: number) {
+  const { multiplier, additive } = supernaturalEffects(character, id);
+  // Несколько вариантов одной и той же сверхъестественной характеристики не складываются:
+  // применяется наиболее сильный итоговый вариант.
+  return Math.max(ordinaryBonus, ordinaryBonus + additive, ordinaryBonus * multiplier);
 }
 
 export function effectiveBonus(character: Character, id: CharacteristicId) {
-  return bonus(character, id) * supernaturalMultiplier(character, id);
+  return applySupernatural(character, id, bonus(character, id));
 }
 
 export type FatigueEffect = "none" | "halved" | "zero";
@@ -87,7 +100,8 @@ export function fatiguedBonus(character: Character, id: CharacteristicId) {
 }
 
 export function fatiguedEffectiveBonus(character: Character, id: CharacteristicId) {
-  return fatiguedBonus(character, id) * supernaturalMultiplier(character, id);
+  if (fatigueEffect(character, id) === "zero") return 0;
+  return applySupernatural(character, id, fatiguedBonus(character, id));
 }
 
 export function skillModifier(level: number) {
@@ -135,7 +149,7 @@ export function zoneDefense(character: Character, zone: HitZone) {
 }
 
 export function movement(character: Character) {
-  const agilityBonus = Math.max(0, Math.min(10, fatiguedBonus(character, "agility"))) * supernaturalMultiplier(character, "agility");
+  const agilityBonus = applySupernatural(character, "agility", Math.max(0, Math.min(10, fatiguedBonus(character, "agility"))));
   return {
     free: agilityBonus === 0 ? 0.5 : agilityBonus,
     halfAction: agilityBonus === 0 ? 1 : agilityBonus * 2,

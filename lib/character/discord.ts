@@ -1,5 +1,6 @@
 import { DICE_SIDES } from "./dice";
 import { evaluateSkillCheck } from "./skill-check";
+import type { WeaponDamageResult } from "./weapon-damage";
 
 export type DiscordRollRequest = {
   webhookUrl: string;
@@ -14,6 +15,7 @@ export type DiscordRollRequest = {
   threshold?: number;
   actionName?: string;
   checkLabel?: string;
+  damage?: WeaponDamageResult;
 };
 
 export function parseDiscordWebhookUrl(value: string) {
@@ -51,12 +53,24 @@ export function validDiscordRoll(request: DiscordRollRequest) {
   if (request.kind === "characteristic") return typeof request.characteristicName === "string"
     && request.characteristicName.trim().length >= 1
     && request.characteristicName.trim().length <= 120;
-  return typeof request.actionName === "string"
+  const validCombat = typeof request.actionName === "string"
     && request.actionName.trim().length >= 1
     && request.actionName.trim().length <= 120
     && typeof request.checkLabel === "string"
     && request.checkLabel.trim().length >= 1
     && request.checkLabel.trim().length <= 40;
+  if (!validCombat || request.damage === undefined) return validCombat;
+  const damage = request.damage;
+  return typeof damage.weaponName === "string"
+    && damage.weaponName.trim().length >= 1
+    && damage.weaponName.trim().length <= 120
+    && Number.isInteger(damage.diceCount) && damage.diceCount >= 1 && damage.diceCount <= 30
+    && Number.isInteger(damage.sides) && damage.sides >= 2 && damage.sides <= 1000
+    && Array.isArray(damage.rolls) && damage.rolls.length === damage.diceCount
+    && damage.rolls.every((roll) => Number.isInteger(roll) && roll >= 1 && roll <= damage.sides)
+    && Number.isFinite(damage.characteristicModifier)
+    && Number.isFinite(damage.fixedModifier)
+    && Number.isFinite(damage.total);
 }
 
 export function discordMessagePayload(request: DiscordRollRequest, hasAvatar: boolean) {
@@ -71,6 +85,9 @@ export function discordMessagePayload(request: DiscordRollRequest, hasAvatar: bo
     : request.kind === "skill" || request.kind === "combat" || request.kind === "characteristic"
       ? (() => {
           const outcome = evaluateSkillCheck(Number(request.threshold), Number(request.result));
+          const damageText = request.kind === "combat" && request.damage
+            ? `\n\n**Урон — ${request.damage.weaponName}**\n${request.damage.diceCount}d${request.damage.sides}: ${request.damage.rolls.join(" + ")} ${request.damage.characteristicModifier >= 0 ? "+" : "−"} ${Math.abs(request.damage.characteristicModifier)}${request.damage.fixedModifier ? ` ${request.damage.fixedModifier >= 0 ? "+" : "−"} ${Math.abs(request.damage.fixedModifier)}` : ""} = **${request.damage.total}**`
+            : "";
           return {
             author: { name: characterName },
             title: request.kind === "skill"
@@ -78,7 +95,7 @@ export function discordMessagePayload(request: DiscordRollRequest, hasAvatar: bo
               : request.kind === "characteristic"
                 ? `Проверка характеристики «${request.characteristicName?.trim()}» d100`
                 : `Боевое действие «${request.actionName?.trim()}» — ${request.checkLabel?.trim()}`,
-            description: `Порог — ${request.threshold}\n# ${request.result}\n**${outcome.text}**`,
+            description: `Порог — ${request.threshold}\n# ${request.result}\n**${outcome.text}**${damageText}`,
             color: outcome.passed ? 0x477a45 : 0x8f3028,
           };
         })()

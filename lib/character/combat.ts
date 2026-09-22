@@ -11,6 +11,7 @@ export type CombatAction = {
   description: string;
   check: CombatCheckKind;
   usesWeapon?: boolean;
+  dealsDamage?: boolean;
   requiresCounterattack?: boolean;
 };
 
@@ -21,7 +22,7 @@ export type CombatActionValue = {
 };
 
 export const COMBAT_ACTIONS: CombatAction[] = [
-  { id: "all-out-attack", action: "Атака всеми силами", type: "Полное", subtype: "Атака, Рукопашная", description: "Не использовать в этом раунде реакцию Избегания и получить +30 НР.", check: "melee", usesWeapon: true },
+  { id: "all-out-attack", action: "Атака всеми силами", type: "Полное", subtype: "Атака, Рукопашная", description: "Не использовать в этом раунде реакцию Избегания и получить +30 НР.", check: "melee", usesWeapon: true, dealsDamage: true },
   { id: "stand-mount", action: "Встать / Оседлать / Спешиться", type: "Полу", subtype: "Движение", description: "Встать, будучи Упавшим, оседлать ездового зверя или спешиться, войти или покинуть транспорт.", check: "none" },
   { id: "delay", action: "Выжидание", type: "Полное", subtype: "Смешанный", description: "Можно сделать любое полудействие до начала своего следующего хода.", check: "none" },
   { id: "disengage", action: "Выход из боя", type: "Полное", subtype: "Движение", description: "Уйти от ближнего боя не подставляясь под свободную атаку.", check: "none" },
@@ -32,15 +33,15 @@ export const COMBAT_ACTIONS: CombatAction[] = [
   { id: "dodge", action: "Уклонение", type: "Реакция", subtype: "Движение", description: "Используется с умением Уклонение (Ловкость) для избежания входящей атаки.", check: "dodge" },
   { id: "use-skill", action: "Использовать умение", type: "Разный", subtype: "Концентрация, Разный", description: "Персонаж может использовать умение.", check: "skill" },
   { id: "manoeuvre", action: "Манёвр", type: "Полу", subtype: "Рукопашная, Движение", description: "Встречная проверка НР; при успехе враг передвигается на 1 метр.", check: "melee" },
-  { id: "called-shot", action: "Меткая атака", type: "Полное", subtype: "Атака любая, Концентрация", description: "Атаковать определённую зону цели с -20 НР или НС.", check: "both", usesWeapon: true },
-  { id: "overwatch", action: "Наблюдение", type: "Полное", subtype: "Атака, Концентрация, Стрельба", description: "Стреляет в цели, зашедшие в зону поражения. Если персонаж во время Наблюдения исполнит любое действие или реакцию, например Избегание, его Наблюдение немедленно прекращается.", check: "shooting", usesWeapon: true },
-  { id: "charge", action: "Натиск", type: "Полное", subtype: "Атака, Рукопашная, Движение", description: "Должен продвинуться хотя бы на 4 метра, +20 к НР.", check: "melee", usesWeapon: true },
-  { id: "stun", action: "Оглушение", type: "Полное", subtype: "Атака, Рукопашная", description: "Попытка Оглушить оппонента. Проверка НР с -20; при успехе бросается 1к10 + БС атакующего. Если значение больше либо равно БВын и значению брони на голове атакуемого, цель оглушается на количество раундов, равное разнице между двумя значениями.", check: "melee", usesWeapon: true },
-  { id: "cautious-attack", action: "Осторожная атака", type: "Полное", subtype: "Атака любая, Концентрация", description: "-10 к НС или НР, +10 ко всем проверкам Избегания до начала следующего раунда.", check: "both", usesWeapon: true },
+  { id: "called-shot", action: "Меткая атака", type: "Полное", subtype: "Атака любая, Концентрация", description: "Атаковать определённую зону цели с -20 НР или НС.", check: "both", usesWeapon: true, dealsDamage: true },
+  { id: "overwatch", action: "Наблюдение", type: "Полное", subtype: "Атака, Концентрация, Стрельба", description: "Стреляет в цели, зашедшие в зону поражения. Если персонаж во время Наблюдения исполнит любое действие или реакцию, например Избегание, его Наблюдение немедленно прекращается.", check: "shooting", usesWeapon: true, dealsDamage: true },
+  { id: "charge", action: "Натиск", type: "Полное", subtype: "Атака, Рукопашная, Движение", description: "Должен продвинуться хотя бы на 4 метра, +20 к НР.", check: "melee", usesWeapon: true, dealsDamage: true },
+  { id: "stun", action: "Оглушение", type: "Полное", subtype: "Атака, Рукопашная", description: "Попытка Оглушить оппонента. Проверка НР с -20; при успехе бросается 1к10 + БС атакующего. Если значение больше либо равно БВын и значению брони на голове атакуемого, цель оглушается на количество раундов, равное разнице между двумя значениями.", check: "melee", usesWeapon: true, dealsDamage: true },
+  { id: "cautious-attack", action: "Осторожная атака", type: "Полное", subtype: "Атака любая, Концентрация", description: "-10 к НС или НР, +10 ко всем проверкам Избегания до начала следующего раунда.", check: "both", usesWeapon: true, dealsDamage: true },
   { id: "knock-down", action: "Сбить с ног", type: "Полу", subtype: "Атака, Рукопашная", description: "Используется как часть Натиска или сразу после полудействия движения. Встречная проверка Силы с +10; при успехе цель сбита с ног. Две и более степени успеха наносят цели урон 1к5-3 + БС и один уровень Усталости; при провале с разницей в две и более степени успеха атакующий сбит с ног.", check: "strength" },
-  { id: "standard-attack", action: "Стандартная атака", type: "Полу", subtype: "Атака любая", description: "+10 НР или НС; сделать одну атаку в ближнем или дальнем бою.", check: "both", usesWeapon: true },
+  { id: "standard-attack", action: "Стандартная атака", type: "Полу", subtype: "Атака любая", description: "+10 НР или НС; сделать одну атаку в ближнем или дальнем бою.", check: "both", usesWeapon: true, dealsDamage: true },
   { id: "feint", action: "Финт", type: "Полу", subtype: "Рукопашная", description: "Встречная проверка НР; если персонаж выиграл, от его следующей атаки нельзя увернуться или парировать её.", check: "melee", usesWeapon: true },
-  { id: "counterattack", action: "Контратака", type: "Реакция при удачном парировании", subtype: "Рукопашная", description: "После успешного Парирования персонаж немедленно совершает ответную рукопашную атаку со штрафом -20.", check: "counterattack", usesWeapon: true, requiresCounterattack: true },
+  { id: "counterattack", action: "Контратака", type: "Реакция при удачном парировании", subtype: "Рукопашная", description: "После успешного Парирования персонаж немедленно совершает ответную рукопашную атаку со штрафом -20.", check: "counterattack", usesWeapon: true, dealsDamage: true, requiresCounterattack: true },
 ];
 
 export const COMBAT_RANK_LABELS = ["Know", "+10", "+20", "+30", "+40"] as const;

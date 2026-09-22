@@ -23,7 +23,27 @@ export default function SkillsPanel({ character, onChange }: { character: Charac
   const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState("");
   const [skillRoll, setSkillRoll] = useState<SkillRoll | null>(null);
-  const filtered = useMemo(() => character.skills.filter((skill) => skill.label.toLocaleLowerCase("ru").includes(query.trim().toLocaleLowerCase("ru"))), [character.skills, query]);
+  const orderedSkills = useMemo(() => {
+    const children = new Map<string, Skill[]>();
+    for (const skill of character.skills) {
+      if (!skill.parentId) continue;
+      children.set(skill.parentId, [...(children.get(skill.parentId) ?? []), skill]);
+    }
+    const included = new Set<string>();
+    const result: Skill[] = [];
+    for (const skill of character.skills) {
+      if (skill.parentId) continue;
+      result.push(skill);
+      included.add(skill.id);
+      for (const child of children.get(skill.id) ?? []) {
+        result.push(child);
+        included.add(child.id);
+      }
+    }
+    for (const skill of character.skills) if (!included.has(skill.id)) result.push(skill);
+    return result;
+  }, [character.skills]);
+  const filtered = useMemo(() => orderedSkills.filter((skill) => skill.label.toLocaleLowerCase("ru").includes(query.trim().toLocaleLowerCase("ru"))), [orderedSkills, query]);
 
   const setLevel = (skillId: string, level: number) => onChange({
     ...character,

@@ -188,7 +188,7 @@ export function createCharacter(): Character {
 
   return {
     formatVersion: 1,
-    dataRevision: 9,
+    dataRevision: 10,
     characterId: globalThis.crypto?.randomUUID?.() ?? `character-${Date.now()}`,
     savedAt: now,
     name: "Новый персонаж",

@@ -54,7 +54,7 @@ test("calculates Berendei natural armor from endurance bonus", async () => {
   const race = RACES.find((item) => item.id === "berendei");
   const berendei = applyRace(createCharacter(), race, {});
   const character = { ...berendei, characteristics: { ...berendei.characteristics, endurance: { ...berendei.characteristics.endurance, value: 55 } } };
-  assert.equal(calculateNaturalArmor(character, race), 13);
+  assert.equal(calculateNaturalArmor(character, race), 9);
 });
 
 test("recalculates starting characteristics after manual aptitude distribution", async () => {
