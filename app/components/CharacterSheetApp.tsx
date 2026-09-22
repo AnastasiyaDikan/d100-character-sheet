@@ -89,7 +89,7 @@ function StartScreen({ autosave, onNew, onLoad, onRestore, onDeleteAutosave }: {
         <label className="load-button"><FileUp /> Загрузить персонажа<input type="file" accept="application/json,.json" onChange={onLoad} /></label>
       </div>
       {autosave && <div className="autosave-card"><div><span>Найдено автосохранение</span><strong>{autosave.name || "Безымянный персонаж"}</strong><time>{new Date(autosave.savedAt).toLocaleString("ru-RU")}</time></div><div className="autosave-actions"><Button size="sm" onClick={onRestore}><RotateCcw /> Восстановить</Button><Button size="icon-sm" variant="ghost" aria-label="Удалить автосохранение" onClick={onDeleteAutosave}><Trash2 /></Button></div></div>}
-      <p className="version">Character Sheet v0.13.0</p>
+      <p className="version">Character Sheet v0.13.1</p>
     </section>
   </main>;
 }
@@ -271,7 +271,29 @@ function FrontPage({ character, onChange, onRaceOpen }: { character: Character; 
 function WeaponCard({ weapon, onChange, onActiveChange, onDelete }: { weapon: Weapon; onChange: (weapon: Weapon) => void; onActiveChange: (active: boolean) => void; onDelete: () => void }) {
   const field = (key: keyof Weapon, label: string) => <Field label={label} value={String(weapon[key])} onChange={(value) => onChange({ ...weapon, [key]: value })} />;
   const damageModes = weaponDamageModes(weapon.damage);
-  return <article className={`equipment-card weapon-card ${weapon.active ? "active-weapon" : ""}`}><header><input value={weapon.name} placeholder="Название оружия" onChange={(event) => onChange({ ...weapon, name: event.target.value })} /><label className="weapon-active-check" title="Использовать это оружие для автоматического броска урона"><Checkbox checked={weapon.active} onCheckedChange={(checked) => onActiveChange(checked === true)} /><span>Используемое</span></label><div className="weapon-characteristic-choice" title="Модификатор урона: Ловкость или Сила"><button className={weapon.damageCharacteristic === "agility" ? "active" : ""} onClick={() => onChange({ ...weapon, damageCharacteristic: "agility" })}>Л</button><span>/</span><button className={weapon.damageCharacteristic === "strength" ? "active" : ""} onClick={() => onChange({ ...weapon, damageCharacteristic: "strength" })}>С</button></div>{damageModes.length > 1 && <div className="weapon-damage-mode" title="Выбранный вариант урона">{damageModes.map((mode, index) => <button key={mode} className={weapon.damageMode === index ? "active" : ""} onClick={() => onChange({ ...weapon, damageMode: index as 0 | 1 })}>{mode}</button>)}</div>}<button aria-label={weapon.collapsed ? "Развернуть оружие" : "Свернуть оружие"} onClick={() => onChange({ ...weapon, collapsed: !weapon.collapsed })}>{weapon.collapsed ? <ChevronRight /> : <ChevronLeft />}</button><button aria-label="Удалить оружие" onClick={onDelete}><Trash2 /></button></header>{!weapon.collapsed && <div className="weapon-grid">{field("weaponClass", "Класс")}{field("range", "Дальность")}{field("rate", "Скорострельность")}{field("damage", "Урон: d8 или d8/d10")}{field("penetration", "Проникновение")}{field("magazine", "Обойма")}{field("reload", "Перезарядка")}<div className="wide">{field("properties", "Свойства")}</div></div>}</article>;
+  return <article className={`equipment-card weapon-card ${weapon.active ? "active-weapon" : ""}`}>
+    <header>
+      <input value={weapon.name} placeholder="Название оружия" onChange={(event) => onChange({ ...weapon, name: event.target.value })} />
+      <label className={`weapon-active-check ${weapon.active ? "active" : ""}`} title="Использовать это оружие для автоматического броска урона">
+        <Checkbox className="weapon-active-checkbox" checked={weapon.active} onCheckedChange={(checked) => onActiveChange(checked === true)} />
+        <span>Используемое</span>
+      </label>
+      <div className="weapon-characteristic-choice" title="Модификатор урона: Ловкость или Сила">
+        <button className={weapon.damageCharacteristic === "agility" ? "active" : ""} onClick={() => onChange({ ...weapon, damageCharacteristic: "agility" })}>Л</button>
+        <span>/</span>
+        <button className={weapon.damageCharacteristic === "strength" ? "active" : ""} onClick={() => onChange({ ...weapon, damageCharacteristic: "strength" })}>С</button>
+      </div>
+      <button aria-label={weapon.collapsed ? "Развернуть оружие" : "Свернуть оружие"} onClick={() => onChange({ ...weapon, collapsed: !weapon.collapsed })}>{weapon.collapsed ? <ChevronRight /> : <ChevronLeft />}</button>
+      <button aria-label="Удалить оружие" onClick={onDelete}><Trash2 /></button>
+    </header>
+    {!weapon.collapsed && <>
+      <div className="weapon-grid">{field("weaponClass", "Класс")}{field("range", "Дальность")}{field("rate", "Скорострельность")}{field("damage", "Урон: d8 или d8/d10")}{field("penetration", "Проникновение")}{field("magazine", "Обойма")}{field("reload", "Перезарядка")}<div className="wide">{field("properties", "Свойства")}</div></div>
+      {damageModes.length > 1 && <div className="weapon-damage-footer">
+        <span>Выбранный урон</span>
+        <div className="weapon-damage-mode" title="Выберите урон для текущего хвата">{damageModes.map((mode, index) => <button key={mode} className={weapon.damageMode === index ? "active" : ""} onClick={() => onChange({ ...weapon, damageMode: index as 0 | 1 })}>{mode}</button>)}</div>
+      </div>}
+    </>}
+  </article>;
 }
 
 function ArmorCard({ armor, onChange, onDelete }: { armor: Armor; onChange: (armor: Armor) => void; onDelete: () => void }) {
