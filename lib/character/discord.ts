@@ -1,6 +1,6 @@
 import { DICE_SIDES } from "./dice";
 import { evaluateSkillCheck } from "./skill-check";
-import type { WeaponDamageResult } from "./weapon-damage";
+import { formatWeaponDamage, type WeaponDamageResult } from "./weapon-damage";
 
 export type DiscordRollRequest = {
   webhookUrl: string;
@@ -61,13 +61,17 @@ export function validDiscordRoll(request: DiscordRollRequest) {
     && request.checkLabel.trim().length <= 40;
   if (!validCombat || request.damage === undefined) return validCombat;
   const damage = request.damage;
+  const validLegacyRolls = Number.isInteger(damage.sides) && damage.sides >= 2 && damage.sides <= 1000
+    && Array.isArray(damage.rolls) && damage.rolls.length === damage.diceCount
+    && damage.rolls.every((roll) => Number.isInteger(roll) && roll >= 1 && roll <= damage.sides);
+  const validDetailedRolls = Array.isArray(damage.rollDetails)
+    && damage.rollDetails.length === damage.diceCount
+    && damage.rollDetails.every((roll) => Number.isInteger(roll.sides) && roll.sides >= 2 && roll.sides <= 1000 && Number.isInteger(roll.value) && roll.value >= 1 && roll.value <= roll.sides);
   return typeof damage.weaponName === "string"
     && damage.weaponName.trim().length >= 1
     && damage.weaponName.trim().length <= 120
-    && Number.isInteger(damage.diceCount) && damage.diceCount >= 1 && damage.diceCount <= 30
-    && Number.isInteger(damage.sides) && damage.sides >= 2 && damage.sides <= 1000
-    && Array.isArray(damage.rolls) && damage.rolls.length === damage.diceCount
-    && damage.rolls.every((roll) => Number.isInteger(roll) && roll >= 1 && roll <= damage.sides)
+    && Number.isInteger(damage.diceCount) && damage.diceCount >= 1 && damage.diceCount <= 150
+    && (validDetailedRolls || validLegacyRolls)
     && Number.isFinite(damage.characteristicModifier)
     && Number.isFinite(damage.fixedModifier)
     && Number.isFinite(damage.total);
@@ -86,7 +90,7 @@ export function discordMessagePayload(request: DiscordRollRequest, hasAvatar: bo
       ? (() => {
           const outcome = evaluateSkillCheck(Number(request.threshold), Number(request.result));
           const damageText = request.kind === "combat" && request.damage
-            ? `\n\n**Урон — ${request.damage.weaponName}**\n${request.damage.diceCount}d${request.damage.sides}: ${request.damage.rolls.join(" + ")} ${request.damage.characteristicModifier >= 0 ? "+" : "−"} ${Math.abs(request.damage.characteristicModifier)}${request.damage.fixedModifier ? ` ${request.damage.fixedModifier >= 0 ? "+" : "−"} ${Math.abs(request.damage.fixedModifier)}` : ""} = **${request.damage.total}**`
+            ? `\n\n**Урон — ${request.damage.weaponName}**\n${Array.isArray(request.damage.rollDetails) ? formatWeaponDamage(request.damage) : `${request.damage.diceCount}d${request.damage.sides}: ${request.damage.rolls.join(" + ")} ${request.damage.characteristicModifier >= 0 ? "+" : "−"} ${Math.abs(request.damage.characteristicModifier)}${request.damage.fixedModifier ? ` ${request.damage.fixedModifier >= 0 ? "+" : "−"} ${Math.abs(request.damage.fixedModifier)}` : ""} = **${request.damage.total}**`}`
             : "";
           return {
             author: { name: characterName },

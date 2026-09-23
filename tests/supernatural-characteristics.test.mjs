@@ -12,7 +12,7 @@ async function loadRules() {
     export { DICE_SIDES, rollDie } from ${JSON.stringify(new URL("../lib/character/dice.ts", import.meta.url).pathname)};
     export { discordMessagePayload, parseDiscordWebhookUrl, validDiscordRoll } from ${JSON.stringify(new URL("../lib/character/discord.ts", import.meta.url).pathname)};
     export { evaluateSkillCheck } from ${JSON.stringify(new URL("../lib/character/skill-check.ts", import.meta.url).pathname)};
-    export { parseWeaponDamage, rollWeaponDamage, selectedWeaponDamage, weaponDamageModes } from ${JSON.stringify(new URL("../lib/character/weapon-damage.ts", import.meta.url).pathname)};
+    export { parseDamageExpression, parseWeaponDamage, rollWeaponDamage, selectedWeaponDamage, weaponDamageModes, weaponExplosionRank } from ${JSON.stringify(new URL("../lib/character/weapon-damage.ts", import.meta.url).pathname)};
   `;
   const result = await build({ stdin: { contents: entry, loader: "ts", resolveDir: process.cwd() }, bundle: true, platform: "node", format: "esm", write: false });
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
@@ -216,6 +216,35 @@ test("parses dual weapon damage and adds critical dice plus the selected charact
   assert.ok(critical.rolls.every((roll) => roll >= 1 && roll <= 8));
 });
 
+test("rolls mixed extra damage without critical dice and supports both explosion ranks", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  const weapon = {
+    id: "blade", name: "Эльфийский клинок", weaponClass: "Клинковое", range: "", rate: "", damage: "",
+    damageOneHand: "к8", damageTwoHands: "к10", extraDamage: "к12+к10+к4",
+    penetration: "", magazine: "", reload: "", properties: "", collapsed: false, active: true, damageCharacteristic: "agility", damageMode: 1,
+  };
+  const criticalOutcome = { roll: 20, threshold: 120, passed: true, critical: null, successes: 10, failures: 0, text: "" };
+  const criticalQueue = [3, 4, 5, 6, 7, 2];
+  const critical = rules.rollWeaponDamage(base, weapon, criticalOutcome, () => criticalQueue.shift());
+  assert.deepEqual(rules.parseDamageExpression("к12+к10+к4"), { dice: [{ diceCount: 1, sides: 12 }, { diceCount: 1, sides: 10 }, { diceCount: 1, sides: 4 }], fixedModifier: 0 });
+  assert.equal(critical.criticalDice, 2);
+  assert.deepEqual(critical.rollDetails.map((roll) => roll.kind), ["main", "critical", "critical", "extra", "extra", "extra"]);
+
+  const plainOutcome = { ...criticalOutcome, successes: 0 };
+  const specialized = { ...base, talents: [talent("Специализация (Клинок)")] };
+  const specializationQueue = [10, 6, 4, 3, 2];
+  const specialization = rules.rollWeaponDamage(specialized, weapon, plainOutcome, () => specializationQueue.shift());
+  assert.equal(specialization.explosionRank, 1);
+  assert.deepEqual(specialization.rollDetails.map((roll) => [roll.kind, roll.value]), [["main", 10], ["explosion", 6], ["extra", 4], ["extra", 3], ["extra", 2]]);
+
+  const master = { ...base, talents: [talent("Мастер (Клинок)")] };
+  const masterQueue = [10, 10, 7, 4, 3, 2];
+  const mastered = rules.rollWeaponDamage(master, weapon, plainOutcome, () => masterQueue.shift());
+  assert.equal(mastered.explosionRank, 2);
+  assert.deepEqual(mastered.rollDetails.map((roll) => [roll.kind, roll.value]), [["main", 10], ["explosion", 10], ["explosion", 7], ["extra", 4], ["extra", 3], ["extra", 2]]);
+});
+
 test("copies parry and dodge ranks from the sheet but allows combat overrides", async () => {
   const rules = await loadRules();
   const base = rules.createCharacter();
@@ -238,7 +267,7 @@ test("adds combat defaults to old saves and preserves valid combat choices", asy
   assert.deepEqual(rules.normalizeCharacter(configured).combatSettings, configured.combatSettings);
   assert.equal(rules.normalizeCharacter({ ...configured, journal: "Запись в журнале" }).journal, "Запись в журнале");
   const legacyWeapon = { id: "old", name: "Старый клинок", weaponClass: "", range: "", rate: "", damage: "d8", penetration: "", magazine: "", reload: "", properties: "", collapsed: false };
-  assert.deepEqual(rules.normalizeCharacter({ ...configured, weapons: [legacyWeapon] }).weapons[0], { ...legacyWeapon, active: false, damageCharacteristic: "strength", damageMode: 0 });
+  assert.deepEqual(rules.normalizeCharacter({ ...configured, weapons: [legacyWeapon] }).weapons[0], { ...legacyWeapon, damageOneHand: "d8", damageTwoHands: "", extraDamage: "", active: false, damageCharacteristic: "strength", damageMode: 0 });
 });
 
 test("prices the +40 skill rank as the first purchase", async () => {

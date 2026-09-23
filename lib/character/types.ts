@@ -51,7 +51,11 @@ export type Weapon = {
   weaponClass: string;
   range: string;
   rate: string;
+  /** Старая объединённая запись урона. Сохраняется для совместимости со старыми файлами. */
   damage: string;
+  damageOneHand: string;
+  damageTwoHands: string;
+  extraDamage: string;
   penetration: string;
   magazine: string;
   reload: string;
@@ -59,7 +63,7 @@ export type Weapon = {
   collapsed: boolean;
   active: boolean;
   damageCharacteristic: "strength" | "agility";
-  /** Выбранный вариант из записи вида d8/d10. */
+  /** 0 — хват одной рукой, 1 — хват двумя руками. */
   damageMode: 0 | 1;
 };
 

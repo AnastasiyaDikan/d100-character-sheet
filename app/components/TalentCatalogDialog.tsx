@@ -66,7 +66,7 @@ export default function TalentCatalogDialog({ open, onOpenChange, existingTalent
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="paper-dialog talent-catalog-dialog">
-      <DialogHeader><DialogTitle><BookOpen /> Справочник талантов</DialogTitle><DialogDescription>249 талантов с полными свойствами и требованиями сохранены в чарнике и доступны даже при недоступности FFG Wiki. Rogue Trader, DeathWatch и Imperium Maledictum исключены.</DialogDescription></DialogHeader>
+      <DialogHeader><DialogTitle><BookOpen /> Справочник талантов</DialogTitle><DialogDescription>253 таланта с полными свойствами и требованиями сохранены в чарнике и доступны даже при недоступности FFG Wiki. В справочник также включена домашняя линейка оружейного мастерства.</DialogDescription></DialogHeader>
       {!error && <label className="catalog-search"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Название, линейка, текст или требование…" aria-label="Поиск по справочнику талантов" /><span>{filtered.length}</span></label>}
       <div className="catalog-list">
         {loading && <p className="catalog-state">Открываю локальный справочник…</p>}

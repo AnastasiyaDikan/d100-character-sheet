@@ -73,7 +73,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     ...raw,
     raceId,
     raceChoices,
-    dataRevision: 10,
+    dataRevision: 11,
     avatarCrop: raw.avatarCrop ?? base.avatarCrop,
     characteristics: { ...base.characteristics, ...(raw.characteristics ?? {}) },
     aptitudes: { ...base.aptitudes, ...(raw.aptitudes ?? {}) },
@@ -101,12 +101,22 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
       weaponModifier: Number.isFinite(Number(rawCombat?.weaponModifier)) ? Number(rawCombat?.weaponModifier) : 0,
       aimBonus: rawCombat?.aimBonus === 10 || rawCombat?.aimBonus === 20 ? rawCombat.aimBonus : 0,
     },
-    weapons: (raw.weapons ?? []).map((weapon) => ({
-      ...weapon,
-      active: weapon.active === true,
-      damageCharacteristic: weapon.damageCharacteristic === "agility" ? "agility" as const : "strength" as const,
-      damageMode: weapon.damageMode === 1 ? 1 as const : 0 as const,
-    })),
+    weapons: (raw.weapons ?? []).map((weapon) => {
+      const stored = weapon as Partial<Character["weapons"][number]>;
+      const legacyModes = typeof stored.damage === "string"
+        ? stored.damage.split("/").map((item) => item.trim()).filter(Boolean).slice(0, 2)
+        : [];
+      return {
+        ...weapon,
+        damage: typeof stored.damage === "string" ? stored.damage : "",
+        damageOneHand: typeof stored.damageOneHand === "string" ? stored.damageOneHand : (legacyModes[0] ?? ""),
+        damageTwoHands: typeof stored.damageTwoHands === "string" ? stored.damageTwoHands : (legacyModes[1] ?? ""),
+        extraDamage: typeof stored.extraDamage === "string" ? stored.extraDamage : "",
+        active: stored.active === true,
+        damageCharacteristic: stored.damageCharacteristic === "agility" ? "agility" as const : "strength" as const,
+        damageMode: stored.damageMode === 1 ? 1 as const : 0 as const,
+      };
+    }),
   };
   if ((raw.dataRevision ?? 0) >= 3) return merged;
 
@@ -118,7 +128,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     const advances = legacy?.advances ?? 0;
     return [id, { ...value, advances, value: value.value + advances * 5 }];
   })) as Character["characteristics"];
-  const withProgress = { ...migrated, characteristics, dataRevision: 10 as const };
+  const withProgress = { ...migrated, characteristics, dataRevision: 11 as const };
   const woundsTotal = calculateRaceWounds(withProgress, race);
   return { ...withProgress, woundsTotal, woundsCurrent: woundsTotal };
 }

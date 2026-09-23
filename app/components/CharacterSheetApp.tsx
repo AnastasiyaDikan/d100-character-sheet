@@ -26,7 +26,6 @@ import { rollDie } from "@/lib/character/dice";
 import { createCharacterThumbnail, discordIsConnected, loadDiscordSettings, sendDiscordRoll } from "@/lib/character/discord-client";
 import { evaluateSkillCheck, type SkillCheckOutcome } from "@/lib/character/skill-check";
 import { deleteAutosave, downloadCharacter, loadAutosave, normalizeCharacter, saveAutosave } from "@/lib/character/storage";
-import { weaponDamageModes } from "@/lib/character/weapon-damage";
 import type { Armor, Character, CharacteristicId, HitZone, InventoryItem, Race, Talent, Weapon } from "@/lib/character/types";
 
 const SKILL_LEVELS = ["Know", "+10", "+20", "+30", "+40"];
@@ -89,7 +88,7 @@ function StartScreen({ autosave, onNew, onLoad, onRestore, onDeleteAutosave }: {
         <label className="load-button"><FileUp /> Загрузить персонажа<input type="file" accept="application/json,.json" onChange={onLoad} /></label>
       </div>
       {autosave && <div className="autosave-card"><div><span>Найдено автосохранение</span><strong>{autosave.name || "Безымянный персонаж"}</strong><time>{new Date(autosave.savedAt).toLocaleString("ru-RU")}</time></div><div className="autosave-actions"><Button size="sm" onClick={onRestore}><RotateCcw /> Восстановить</Button><Button size="icon-sm" variant="ghost" aria-label="Удалить автосохранение" onClick={onDeleteAutosave}><Trash2 /></Button></div></div>}
-      <p className="version">Character Sheet v0.13.1</p>
+      <p className="version">Character Sheet v0.14.0</p>
     </section>
   </main>;
 }
@@ -270,7 +269,6 @@ function FrontPage({ character, onChange, onRaceOpen }: { character: Character; 
 
 function WeaponCard({ weapon, onChange, onActiveChange, onDelete }: { weapon: Weapon; onChange: (weapon: Weapon) => void; onActiveChange: (active: boolean) => void; onDelete: () => void }) {
   const field = (key: keyof Weapon, label: string) => <Field label={label} value={String(weapon[key])} onChange={(value) => onChange({ ...weapon, [key]: value })} />;
-  const damageModes = weaponDamageModes(weapon.damage);
   return <article className={`equipment-card weapon-card ${weapon.active ? "active-weapon" : ""}`}>
     <header>
       <input value={weapon.name} placeholder="Название оружия" onChange={(event) => onChange({ ...weapon, name: event.target.value })} />
@@ -287,11 +285,16 @@ function WeaponCard({ weapon, onChange, onActiveChange, onDelete }: { weapon: We
       <button aria-label="Удалить оружие" onClick={onDelete}><Trash2 /></button>
     </header>
     {!weapon.collapsed && <>
-      <div className="weapon-grid">{field("weaponClass", "Класс")}{field("range", "Дальность")}{field("rate", "Скорострельность")}{field("damage", "Урон: d8 или d8/d10")}{field("penetration", "Проникновение")}{field("magazine", "Обойма")}{field("reload", "Перезарядка")}<div className="wide">{field("properties", "Свойства")}</div></div>
-      {damageModes.length > 1 && <div className="weapon-damage-footer">
-        <span>Выбранный урон</span>
-        <div className="weapon-damage-mode" title="Выберите урон для текущего хвата">{damageModes.map((mode, index) => <button key={mode} className={weapon.damageMode === index ? "active" : ""} onClick={() => onChange({ ...weapon, damageMode: index as 0 | 1 })}>{mode}</button>)}</div>
-      </div>}
+      <div className="weapon-grid">
+        {field("weaponClass", "Класс")}{field("range", "Дальность")}{field("rate", "Скорострельность")}{field("penetration", "Проникновение")}{field("magazine", "Обойма")}{field("reload", "Перезарядка")}
+        <div className="weapon-damage-editor wide">
+          <span className="weapon-damage-title">Урон:</span>
+          <label className={weapon.damageMode === 0 ? "selected" : ""}><button type="button" onClick={() => onChange({ ...weapon, damageMode: 0 })}>Одна рука</button><input value={weapon.damageOneHand} placeholder="к8" onChange={(event) => onChange({ ...weapon, damageOneHand: event.target.value })} /></label>
+          <label className={weapon.damageMode === 1 ? "selected" : ""}><button type="button" onClick={() => onChange({ ...weapon, damageMode: 1 })}>Две руки</button><input value={weapon.damageTwoHands} placeholder="к10" onChange={(event) => onChange({ ...weapon, damageTwoHands: event.target.value })} /></label>
+          <label className="weapon-extra-damage"><span>Доп. урон:</span><input value={weapon.extraDamage} placeholder="к12+к10+к4" onChange={(event) => onChange({ ...weapon, extraDamage: event.target.value })} /></label>
+        </div>
+        <div className="wide">{field("properties", "Свойства")}</div>
+      </div>
     </>}
   </article>;
 }
@@ -303,7 +306,7 @@ function ArmorCard({ armor, onChange, onDelete }: { armor: Armor; onChange: (arm
 function BackPage({ character, onChange }: { character: Character; onChange: (character: Character) => void }) {
   const move = movement(character), carry = carrying(character), fatigue = fatigueThreshold(character);
   const update = <K extends keyof Character>(key: K, value: Character[K]) => onChange({ ...character, [key]: value });
-  const addWeapon = () => update("weapons", [...character.weapons, { id: uid("weapon"), name: "Новое оружие", weaponClass: "", range: "", rate: "", damage: "", penetration: "", magazine: "", reload: "", properties: "", collapsed: false, active: false, damageCharacteristic: "strength", damageMode: 0 }]);
+  const addWeapon = () => update("weapons", [...character.weapons, { id: uid("weapon"), name: "Новое оружие", weaponClass: "", range: "", rate: "", damage: "", damageOneHand: "", damageTwoHands: "", extraDamage: "", penetration: "", magazine: "", reload: "", properties: "", collapsed: false, active: false, damageCharacteristic: "strength", damageMode: 0 }]);
   const addArmor = () => update("armor", [...character.armor, { id: uid("armor"), name: "Новый доспех", type: "", armor: 0, properties: "", zones: [] }]);
   const addInventory = () => update("inventory", [...character.inventory, { id: uid("item"), name: "", cost: "", properties: "" }]);
   return <div className="sheet-page back-page"><div className="back-grid"><div className="equipment-column">
