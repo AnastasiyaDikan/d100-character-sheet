@@ -52,7 +52,7 @@ export function evaluateSkillCheck(threshold: number, roll: number): SkillCheckO
     };
   }
 
-  const failures = Math.ceil(Math.abs(difference) / 10);
+  const failures = Math.floor(Math.abs(difference) / 10);
   return {
     roll: safeRoll,
     threshold: safeThreshold,
@@ -60,6 +60,8 @@ export function evaluateSkillCheck(threshold: number, roll: number): SkillCheckO
     critical: null,
     successes: 0,
     failures,
-    text: `Проверка не пройдена: ${failures} ${failureWord(failures)}`,
+    text: failures === 0
+      ? "Проверка не пройдена без дополнительных провалов"
+      : `Проверка не пройдена: ${failures} ${failureWord(failures)}`,
   };
 }
