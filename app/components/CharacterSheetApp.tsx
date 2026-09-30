@@ -2,7 +2,7 @@
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertTriangle, BookOpen, BookText, Check, CheckCircle2, ChevronLeft, ChevronRight, CircleHelp, Dices, Download, Feather, FileUp,
+  AlertTriangle, BookOpen, BookText, Check, CheckCircle2, ChevronLeft, ChevronRight, CircleHelp, Dices, Download, Feather, FileUp, FolderOpen,
   HeartPulse, ImagePlus, LoaderCircle, Moon, Pencil, Plus, RotateCcw, Save, Search, Shield, Skull,
   Sparkles, Trash2, X,
 } from "lucide-react";
@@ -26,6 +26,7 @@ import { rollDie } from "@/lib/character/dice";
 import { createCharacterThumbnail, discordIsConnected, loadDiscordSettings, sendDiscordRoll } from "@/lib/character/discord-client";
 import { evaluateSkillCheck, type SkillCheckOutcome } from "@/lib/character/skill-check";
 import { deleteAutosave, downloadCharacter, loadAutosave, normalizeCharacter, saveAutosave } from "@/lib/character/storage";
+import { FOLDER_AUTOSAVE_INTERVAL_MS, folderBindingStatus, saveCharacterToFolder, saveFolderAutosave } from "@/lib/character/file-storage";
 import type { Armor, Character, CharacteristicId, HitZone, InventoryItem, Race, Talent, Weapon } from "@/lib/character/types";
 
 const SKILL_LEVELS = ["Know", "+10", "+20", "+30", "+40"];
@@ -47,7 +48,7 @@ const TUTORIAL = [
   ["talents", "Таланты и черты", "Здесь можно внести таланты и черты персонажа."],
   ["hit-map", "Карта попаданий", "Защита зоны считается из доспехов, естественной брони и Бонуса Выносливости."],
   ["flip", "Страницы чарника", "Переключайтесь между лицевой стороной, снаряжением и заметками с помощью закладок у правого края."],
-  ["save", "Сохранение", "Изменения сохраняются автоматически. Отдельный JSON можно скачать в любой момент."],
+  ["save", "Сохранение", "При первом сохранении выберите папку. Основной JSON сохранится в ней, а резервная копия — в подпапке save каждые 20 минут."],
 ] as const;
 
 type DraftTalent = Pick<Talent, "name" | "properties" | "requirements">;
@@ -88,7 +89,7 @@ function StartScreen({ autosave, onNew, onLoad, onRestore, onDeleteAutosave }: {
         <label className="load-button"><FileUp /> Загрузить персонажа<input type="file" accept="application/json,.json" onChange={onLoad} /></label>
       </div>
       {autosave && <div className="autosave-card"><div><span>Найдено автосохранение</span><strong>{autosave.name || "Безымянный персонаж"}</strong><time>{new Date(autosave.savedAt).toLocaleString("ru-RU")}</time></div><div className="autosave-actions"><Button size="sm" onClick={onRestore}><RotateCcw /> Восстановить</Button><Button size="icon-sm" variant="ghost" aria-label="Удалить автосохранение" onClick={onDeleteAutosave}><Trash2 /></Button></div></div>}
-      <p className="version">Character Sheet v0.14.1</p>
+      <p className="version">Character Sheet v0.15.0</p>
     </section>
   </main>;
 }
@@ -335,7 +336,10 @@ export default function CharacterSheetApp() {
   const [turnPhase, setTurnPhase] = useState<"out" | "in" | null>(null);
   const [character, setCharacter] = useState<Character>(() => createNewCharacter());
   const [autosave, setAutosave] = useState<Character | null>(null);
-  const [lastSavedAt, setLastSavedAt] = useState("");
+  const [lastCacheSavedAt, setLastCacheSavedAt] = useState("");
+  const [lastFolderSavedAt, setLastFolderSavedAt] = useState("");
+  const [folderBound, setFolderBound] = useState(false);
+  const [folderPermissionReady, setFolderPermissionReady] = useState(false);
   const [raceOpen, setRaceOpen] = useState(false);
   const [tutorialPrompt, setTutorialPrompt] = useState(false);
   const [tutorialStep, setTutorialStep] = useState<number | null>(null);
@@ -343,17 +347,44 @@ export default function CharacterSheetApp() {
   const [breakthroughsOpen, setBreakthroughsOpen] = useState(false);
   const [fatigueState, setFatigueState] = useState<"unconscious" | "dead" | null>(null);
   const previousFatigue = useRef(0);
+  const characterRef = useRef(character);
 
   useEffect(() => { loadAutosave().then(setAutosave).catch(() => setAutosave(null)); }, []);
+  useEffect(() => { characterRef.current = character; }, [character]);
+  useEffect(() => {
+    let active = true;
+    setFolderBound(false);
+    setFolderPermissionReady(false);
+    setLastFolderSavedAt("");
+    folderBindingStatus(character.characterId).then((status) => {
+      if (!active) return;
+      setFolderBound(status !== "missing");
+      setFolderPermissionReady(status === "ready");
+    }).catch(() => { if (active) setFolderBound(false); });
+    return () => { active = false; };
+  }, [character.characterId]);
   useEffect(() => {
     if (screen !== "sheet") return;
     const timer = window.setTimeout(async () => {
       const savedAt = new Date().toISOString();
       await saveAutosave({ ...character, savedAt });
-      setLastSavedAt(savedAt);
+      setLastCacheSavedAt(savedAt);
     }, 900);
     return () => window.clearTimeout(timer);
   }, [character, screen]);
+  useEffect(() => {
+    if (screen !== "sheet" || !folderBound || !folderPermissionReady) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const savedAt = await saveFolderAutosave(characterRef.current);
+        if (savedAt) setLastFolderSavedAt(savedAt);
+      } catch {
+        // The fast IndexedDB draft remains available if the folder was moved
+        // or the browser revoked permission while the sheet was open.
+      }
+    }, FOLDER_AUTOSAVE_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [folderBound, folderPermissionReady, screen, character.characterId]);
   useEffect(() => {
     if (screen !== "sheet") return;
     const threshold = fatigueThreshold(character), before = previousFatigue.current, now = character.fatigueCurrent;
@@ -400,6 +431,21 @@ export default function CharacterSheetApp() {
     setCharacter((current) => applyRaceToCharacter(current, race, raceChoices));
     setRaceOpen(false);
   };
+  const saveJson = async (chooseAnotherFolder = false) => {
+    try {
+      const result = await saveCharacterToFolder(character, chooseAnotherFolder);
+      if (result.kind === "unsupported") {
+        downloadCharacter(character);
+        return;
+      }
+      if (result.kind === "cancelled") return;
+      setFolderBound(true);
+      setFolderPermissionReady(true);
+      setLastFolderSavedAt(result.savedAt);
+    } catch {
+      window.alert("Не удалось записать JSON в выбранную папку. Проверьте, что папка доступна, и разрешите браузеру сохранять в неё файлы.");
+    }
+  };
   const tutorial = tutorialStep === null ? null : TUTORIAL[tutorialStep];
   const turnToPage = (next: SheetPage) => {
     if (isTurning || next === page) return;
@@ -422,7 +468,7 @@ export default function CharacterSheetApp() {
   </>;
 
   return <main className="workspace-shell">
-    <header className="toolbar"><Button variant="ghost" size="sm" onClick={() => setScreen("start")}><BookOpen /> Главное меню</Button><span className="toolbar-divider" /><span className="character-title">{character.name || "Безымянный персонаж"} <small>· {currentRaceName}</small></span><div className="toolbar-actions"><span className="save-status"><Save /> {lastSavedAt ? `Автосохранено ${new Date(lastSavedAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "Сохранение…"}</span><Button data-tutorial="save" variant="outline" size="sm" onClick={() => downloadCharacter(character)}><Download /> Сохранить JSON</Button><label className="toolbar-load"><FileUp /><span>Загрузить</span><input type="file" accept="application/json,.json" onChange={loadJson} /></label><Button size="icon-sm" variant="ghost" aria-label="Открыть обучение" onClick={() => { setPage("front"); setTutorialStep(0); }}><CircleHelp /></Button></div></header>
+    <header className="toolbar"><Button variant="ghost" size="sm" onClick={() => setScreen("start")}><BookOpen /> Главное меню</Button><span className="toolbar-divider" /><span className="character-title">{character.name || "Безымянный персонаж"} <small>· {currentRaceName}</small></span><div className="toolbar-actions"><span className="save-status"><Save /> {folderBound ? (!folderPermissionReady ? "Папка привязана · подтвердите доступ" : lastFolderSavedAt ? `Файл сохранён ${new Date(lastFolderSavedAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "Папка привязана · автосейв 20 мин") : (lastCacheSavedAt ? `Черновик сохранён ${new Date(lastCacheSavedAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "Сохранение…")}</span><Button data-tutorial="save" variant="outline" size="sm" onClick={() => void saveJson()}><Download /> {folderBound ? "Сохранить JSON" : "Выбрать папку"}</Button>{folderBound && <Button variant="ghost" size="icon-sm" aria-label="Сменить папку сохранения" title="Сменить папку сохранения" onClick={() => void saveJson(true)}><FolderOpen /></Button>}<label className="toolbar-load"><FileUp /><span>Загрузить</span><input type="file" accept="application/json,.json" onChange={loadJson} /></label><Button size="icon-sm" variant="ghost" aria-label="Открыть обучение" onClick={() => { setPage("front"); setTutorialStep(0); }}><CircleHelp /></Button></div></header>
     <div className={`sheet-scene book-scene show-${page} ${isTurning ? "turning" : ""}`}><div className="book-cover" aria-hidden="true" /><div className={`sheet-paper ${turnPhase ? `page-turn-${turnPhase} ${turnDirection}` : ""}`}>{page === "front" ? <FrontPage character={character} onChange={setCharacter} onRaceOpen={() => setRaceOpen(true)} /> : page === "back" ? <BackPage character={character} onChange={setCharacter} /> : <NotesPage character={character} onChange={setCharacter} />}<nav className="page-bookmarks" aria-label="Страницы чарника"><button className={page === "front" ? "active" : ""} onClick={() => turnToPage("front")}>Лицевая</button><button data-tutorial="flip" className={page === "back" ? "active" : ""} onClick={() => turnToPage("back")}>Оборот</button><button className={page === "notes" ? "active" : ""} onClick={() => turnToPage("notes")}>Заметки</button></nav></div></div>
     <DiceRoller character={character} />
     <button className="breakthrough-button" onClick={() => setBreakthroughsOpen(true)}><Moon /><span>Прорывы</span><strong>{character.breakthroughs.length}</strong></button>
