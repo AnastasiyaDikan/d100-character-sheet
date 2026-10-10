@@ -7,9 +7,16 @@ const catalogPath = fileURLToPath(new URL("../lib/character/talents.json", impor
 const snapshot = JSON.parse(await readFile(catalogPath, "utf8"));
 
 test("ships a complete local talent catalog", () => {
-  assert.equal(snapshot.talents.length, 253);
+  assert.equal(snapshot.talents.length, 254);
   assert.ok(snapshot.talents.every((talent) => talent.properties.length > 0));
   assert.ok(snapshot.talents.every((talent) => !/Rogue Trader|DeathWatch|Imperium Maledictum/i.test(talent.lineages)));
+});
+
+test("contains configurable Supernatural Sense", () => {
+  const talent = snapshot.talents.find((item) => item.id === "сверхъестественное-чувство");
+  assert.ok(talent);
+  assert.match(talent.properties, /выберите характеристику/i);
+  assert.equal(talent.requirements, "Отсутствуют.");
 });
 
 test("contains the complete four-rank weapon mastery line", () => {

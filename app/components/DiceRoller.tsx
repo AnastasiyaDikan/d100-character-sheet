@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Dices, Eye, EyeOff, LoaderCircle, MessageCircle, Send, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Dices, Eye, EyeOff, LoaderCircle, MessageCircle, Send, Sparkles, X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DICE_SIDES, rollDie } from "@/lib/character/dice";
 import { parseDiscordWebhookUrl } from "@/lib/character/discord";
 import { createCharacterThumbnail, discordIsConnected, EMPTY_DISCORD_SETTINGS, loadDiscordSettings, saveDiscordSettings, sendDiscordRoll, type DiscordSettings } from "@/lib/character/discord-client";
+import { hasLightningReflexes, initiativeModifier } from "@/lib/character/initiative";
 import type { Character } from "@/lib/character/types";
 
 type DeliveryState = "idle" | "sending" | "sent" | "error";
@@ -43,6 +44,7 @@ function DiscordConnectionDialog({ open, settings, character, onOpenChange, onSa
         characterName: character.name.trim() || "Безымянный персонаж",
         avatar: await createCharacterThumbnail(character),
         test: true,
+        embedColor: draft.color,
       });
       setTestState("sent");
     } catch (error) {
@@ -62,6 +64,7 @@ function DiscordConnectionDialog({ open, settings, character, onOpenChange, onSa
         <span className="discord-url-input"><input type={visible ? "text" : "password"} value={draft.webhookUrl} placeholder="https://discord.com/api/webhooks/…" autoComplete="off" spellCheck={false} onChange={(event) => { setDraft({ ...draft, webhookUrl: event.target.value }); setTestState("idle"); }} /><button type="button" onClick={() => setVisible((current) => !current)} aria-label={visible ? "Скрыть URL" : "Показать URL"}>{visible ? <EyeOff /> : <Eye />}</button></span>
       </label>
       {draft.webhookUrl && !validUrl && <p className="discord-warning"><AlertTriangle /> Нужна полная ссылка вида https://discord.com/api/webhooks/…</p>}
+      <label className="discord-color-field"><span><Sparkles /> Цвет карточки</span><span><input type="color" value={draft.color} onChange={(event) => setDraft({ ...draft, color: event.target.value })} /><code>{draft.color.toUpperCase()}</code></span></label>
       <label className="discord-enable"><Checkbox checked={draft.enabled} onCheckedChange={(checked) => setDraft({ ...draft, enabled: checked === true })} /> Дублировать новые броски в этот канал</label>
       <div className="discord-test-row">
         <Button type="button" variant="outline" disabled={!validUrl || testState === "sending"} onClick={testConnection}>{testState === "sending" ? <LoaderCircle className="spin" /> : <Send />} Проверить подключение</Button>
@@ -69,7 +72,7 @@ function DiscordConnectionDialog({ open, settings, character, onOpenChange, onSa
         {testState === "error" && <span className="discord-warning"><AlertTriangle /> {testError}</span>}
       </div>
       <p className="discord-secret-note"><strong>Важно:</strong> URL вебхука — секретный ключ канала. Не публикуйте его в Git, сообщениях или скриншотах. При утечке удалите вебхук в Discord и создайте новый.</p>
-      <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Отмена</Button><Button className="fantasy-button" disabled={!validUrl} onClick={() => onSave({ enabled: draft.enabled, webhookUrl: draft.webhookUrl.trim() })}>Сохранить</Button></DialogFooter>
+      <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Отмена</Button><Button className="fantasy-button" disabled={!validUrl || !/^#[0-9a-f]{6}$/i.test(draft.color)} onClick={() => onSave({ enabled: draft.enabled, webhookUrl: draft.webhookUrl.trim(), color: draft.color })}>Сохранить</Button></DialogFooter>
     </DialogContent>
   </Dialog>;
 }
@@ -100,6 +103,7 @@ export default function DiceRoller({ character }: { character: Character }) {
   const [settings, setSettings] = useState<DiscordSettings>(EMPTY_DISCORD_SETTINGS);
   const [delivery, setDelivery] = useState<DeliveryState>("idle");
   const [result, setResult] = useState<{ sides: number; value: number; serial: number } | null>(null);
+  const [initiative, setInitiative] = useState<{ die: number; modifier: number; total: number; doubled: boolean; serial: number; delivery: DeliveryState } | null>(null);
   const latestRoll = useRef(0);
 
   useEffect(() => {
@@ -128,6 +132,7 @@ export default function DiceRoller({ character }: { character: Character }) {
       kind: "simple",
       sides,
       result: value,
+      embedColor: settings.color,
     })).then(() => {
       if (latestRoll.current === serial) setDelivery("sent");
     }).catch(() => {
@@ -135,8 +140,34 @@ export default function DiceRoller({ character }: { character: Character }) {
     });
   };
 
+  const throwInitiative = () => {
+    const die = rollDie(10);
+    const doubled = hasLightningReflexes(character);
+    const modifier = initiativeModifier(character);
+    const total = die + modifier;
+    const serial = Date.now() + Math.random();
+    const connected = discordIsConnected(settings);
+    setInitiative({ die, modifier, total, doubled, serial, delivery: connected ? "sending" : "idle" });
+    if (!connected) return;
+    void createCharacterThumbnail(character).then((avatar) => sendDiscordRoll({
+      webhookUrl: settings.webhookUrl,
+      characterName: character.name.trim() || "Безымянный персонаж",
+      avatar,
+      kind: "initiative",
+      sides: 10,
+      result: die,
+      initiativeModifier: modifier,
+      initiativeTotal: total,
+      initiativeDoubled: doubled,
+      embedColor: settings.color,
+    })).then(() => setInitiative((current) => current?.serial === serial ? { ...current, delivery: "sent" } : current))
+      .catch(() => setInitiative((current) => current?.serial === serial ? { ...current, delivery: "error" } : current));
+  };
+
   const connected = discordIsConnected(settings);
   return <div className={`dice-widget ${open ? "open" : ""}`}>
+    <button className="initiative-launch" onClick={throwInitiative} aria-label="Бросить инициативу" title="Инициатива: d10 + модификатор Ловкости"><Zap /></button>
+    {initiative && <output key={initiative.serial} className="initiative-result" aria-live="polite"><small>Инициатива</small><strong>{initiative.total}</strong><span>d10: {initiative.die} + {initiative.modifier}{initiative.doubled ? " × рефлексы" : ""}</span>{initiative.delivery !== "idle" && <em className={initiative.delivery}>{initiative.delivery === "sending" ? "Discord…" : initiative.delivery === "sent" ? "Отправлено" : "Не отправлено"}</em>}</output>}
     {!open ? <button className={`dice-launch ${connected ? "discord-connected" : ""}`} onClick={() => setOpen(true)} aria-label="Открыть бросок кубиков" title="Бросить кубик"><Dices /></button> : <div className="dice-table" role="group" aria-label="Выбор игрового кубика">
       {result && <output key={result.serial} className="dice-result" aria-live="polite"><span><small>d{result.sides}</small><strong>{result.value}</strong></span>{delivery !== "idle" && <em className={`dice-delivery ${delivery}`}>{delivery === "sending" && <><LoaderCircle className="spin" /> Discord…</>}{delivery === "sent" && <><CheckCircle2 /> Отправлено</>}{delivery === "error" && <><AlertTriangle /> Не отправлено</>}</em>}</output>}
       {DICE_SIDES.map((sides) => <button key={sides} className={`polyhedral-die die-d${sides}`} onClick={() => throwDie(sides)} aria-label={`Бросить d${sides}`} title={`Бросить d${sides}`}><DieIcon sides={sides} /></button>)}

@@ -1,8 +1,8 @@
 import { parseDiscordWebhookUrl, type DiscordRollRequest } from "./discord";
 import type { Character } from "./types";
 
-export type DiscordSettings = { enabled: boolean; webhookUrl: string };
-export const EMPTY_DISCORD_SETTINGS: DiscordSettings = { enabled: false, webhookUrl: "" };
+export type DiscordSettings = { enabled: boolean; webhookUrl: string; color: string };
+export const EMPTY_DISCORD_SETTINGS: DiscordSettings = { enabled: false, webhookUrl: "", color: "#6d281f" };
 
 const storageKey = (characterId: string) => `d100-discord-webhook:${characterId}`;
 
@@ -11,7 +11,7 @@ export function loadDiscordSettings(characterId: string): DiscordSettings {
     const stored = localStorage.getItem(storageKey(characterId));
     const parsed = stored ? JSON.parse(stored) as Partial<DiscordSettings> : null;
     return parsed && typeof parsed.webhookUrl === "string"
-      ? { enabled: parsed.enabled === true, webhookUrl: parsed.webhookUrl }
+      ? { enabled: parsed.enabled === true, webhookUrl: parsed.webhookUrl, color: typeof parsed.color === "string" && /^#[0-9a-f]{6}$/i.test(parsed.color) ? parsed.color : EMPTY_DISCORD_SETTINGS.color }
       : EMPTY_DISCORD_SETTINGS;
   } catch {
     return EMPTY_DISCORD_SETTINGS;

@@ -73,9 +73,10 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     ...raw,
     raceId,
     raceChoices,
-    dataRevision: 11,
+    dataRevision: 12,
     avatarCrop: raw.avatarCrop ?? base.avatarCrop,
     characteristics: { ...base.characteristics, ...(raw.characteristics ?? {}) },
+    characteristicAdjustments: { ...base.characteristicAdjustments, ...(raw.characteristicAdjustments ?? {}) },
     aptitudes: { ...base.aptitudes, ...(raw.aptitudes ?? {}) },
     racialAptitudes: { ...base.racialAptitudes, ...(raw.racialAptitudes ?? {}) },
     appliedAptitudes: {
@@ -128,7 +129,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     const advances = legacy?.advances ?? 0;
     return [id, { ...value, advances, value: value.value + advances * 5 }];
   })) as Character["characteristics"];
-  const withProgress = { ...migrated, characteristics, dataRevision: 11 as const };
+  const withProgress = { ...migrated, characteristics, dataRevision: 12 as const };
   const woundsTotal = calculateRaceWounds(withProgress, race);
   return { ...withProgress, woundsTotal, woundsCurrent: woundsTotal };
 }

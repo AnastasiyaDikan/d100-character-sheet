@@ -91,6 +91,7 @@ export default function SkillsPanel({ character, onChange }: { character: Charac
       result,
       skillName: skill.label,
       threshold,
+      embedColor: settings.color,
     })).then(() => {
       setSkillRoll((current) => current?.serial === serial ? { ...current, delivery: "sent" } : current);
     }).catch(() => {

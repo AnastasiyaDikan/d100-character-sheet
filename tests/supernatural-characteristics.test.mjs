@@ -6,12 +6,14 @@ async function loadRules() {
   const entry = `
     export { createCharacter, RACES } from ${JSON.stringify(new URL("../lib/character/data.ts", import.meta.url).pathname)};
     export { applyRace, calculateNaturalArmor, calculateRaceWounds } from ${JSON.stringify(new URL("../lib/character/race-engine.ts", import.meta.url).pathname)};
-    export { carrying, effectiveBonus, experienceCost, fatigueEffect, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillModifier, skillThreshold, spentExperience, supernaturalBonus, supernaturalMultiplier, zoneDefense } from ${JSON.stringify(new URL("../lib/character/calculations.ts", import.meta.url).pathname)};
-    export { COMBAT_ACTIONS, combatActionValues, selectedCombatRank } from ${JSON.stringify(new URL("../lib/character/combat.ts", import.meta.url).pathname)};
+    export { adjustedCharacteristicValue, adjustedEffectiveBonus, characteristicCheckValue, carrying, effectiveBonus, experienceCost, fatigueEffect, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillModifier, skillThreshold, spentExperience, supernaturalBonus, supernaturalMultiplier, zoneDefense } from ${JSON.stringify(new URL("../lib/character/calculations.ts", import.meta.url).pathname)};
+    export { COMBAT_ACTIONS, combatActionRollsHitLocation, combatActionValues, selectedCombatRank } from ${JSON.stringify(new URL("../lib/character/combat.ts", import.meta.url).pathname)};
     export { normalizeCharacter } from ${JSON.stringify(new URL("../lib/character/storage.ts", import.meta.url).pathname)};
     export { DICE_SIDES, rollDie } from ${JSON.stringify(new URL("../lib/character/dice.ts", import.meta.url).pathname)};
     export { discordMessagePayload, parseDiscordWebhookUrl, validDiscordRoll } from ${JSON.stringify(new URL("../lib/character/discord.ts", import.meta.url).pathname)};
     export { evaluateSkillCheck } from ${JSON.stringify(new URL("../lib/character/skill-check.ts", import.meta.url).pathname)};
+    export { hitLocationForRoll, hitLocationAccusative } from ${JSON.stringify(new URL("../lib/character/hit-location.ts", import.meta.url).pathname)};
+    export { hasLightningReflexes, initiativeModifier } from ${JSON.stringify(new URL("../lib/character/initiative.ts", import.meta.url).pathname)};
     export { parseDamageExpression, parseWeaponDamage, rollWeaponDamage, selectedWeaponDamage, weaponDamageModes, weaponExplosionRank } from ${JSON.stringify(new URL("../lib/character/weapon-damage.ts", import.meta.url).pathname)};
   `;
   const result = await build({ stdin: { contents: entry, loader: "ts", resolveDir: process.cwd() }, bundle: true, platform: "node", format: "esm", write: false });
@@ -93,6 +95,55 @@ test("treats a plain supernatural value as addition and x as multiplication", as
   assert.equal(rules.supernaturalBonus(multiplied, "strength"), 0);
   assert.equal(rules.supernaturalMultiplier(multiplied, "strength"), 3);
   assert.equal(rules.effectiveBonus(multiplied, "strength"), 12);
+});
+
+test("configures Supernatural Sense for any selected characteristic", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  const perception40 = { ...base, characteristics: { ...base.characteristics, perception: { ...base.characteristics.perception, value: 40 } } };
+  assert.equal(rules.supernaturalBonus({ ...perception40, talents: [talent("Сверхъестественное чувство: Восприятие (3)")] }, "perception"), 3);
+  assert.equal(rules.supernaturalMultiplier({ ...perception40, talents: [talent("Сверхъестественное чувство: Восприятие (x3)")] }, "perception"), 3);
+});
+
+test("applies temporary buffs and debuffs downstream but not to wounds", async () => {
+  const rules = await loadRules();
+  const race = rules.RACES.find((item) => item.id === "human");
+  const base = rules.applyRace(rules.createCharacter(), race, {});
+  const character = {
+    ...base,
+    characteristics: {
+      ...base.characteristics,
+      melee: { ...base.characteristics.melee, value: 40 },
+      agility: { ...base.characteristics.agility, value: 40 },
+      endurance: { ...base.characteristics.endurance, value: 40 },
+      strength: { ...base.characteristics.strength, value: 30 },
+      willpower: { ...base.characteristics.willpower, value: 30 },
+    },
+    characteristicAdjustments: { ...base.characteristicAdjustments, melee: -20, agility: 30, endurance: -20 },
+    skills: [...base.skills, { id: "melee-check", label: "Проверка НР", characteristic: "melee", level: 1 }],
+  };
+  const standard = rules.COMBAT_ACTIONS.find((action) => action.id === "standard-attack");
+  assert.equal(rules.adjustedCharacteristicValue(character, "melee"), 20);
+  assert.equal(rules.characteristicCheckValue(character, "melee"), 24);
+  assert.equal(rules.skillThreshold(character, "melee-check"), 24);
+  assert.equal(rules.combatActionValues(character, standard)[0].value, 34);
+  assert.equal(rules.zoneDefense(character, "body"), 2);
+  assert.deepEqual(rules.movement(character), { free: 7, halfAction: 14, charge: 21, run: 42 });
+  assert.equal(rules.calculateRaceWounds(character, race), rules.calculateRaceWounds({ ...character, characteristicAdjustments: base.characteristicAdjustments }, race), "temporary effects must not change wounds");
+});
+
+test("rolls initiative from adjusted agility and doubles it for Lightning Reflexes", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  const character = {
+    ...base,
+    characteristics: { ...base.characteristics, agility: { ...base.characteristics.agility, value: 40 } },
+    characteristicAdjustments: { ...base.characteristicAdjustments, agility: 20 },
+  };
+  assert.equal(rules.initiativeModifier(character), 6);
+  const withTalent = { ...character, talents: [talent("Молниеносные Рефлексы")] };
+  assert.equal(rules.hasLightningReflexes(withTalent), true);
+  assert.equal(rules.initiativeModifier(withTalent), 12);
 });
 
 test("fatigue halves and then nullifies characteristics using the ordinary bonus", async () => {
@@ -339,6 +390,14 @@ test("counterattack uses melee, its modifier, Expert, Shoulder to Shoulder and t
   assert.equal(rules.combatActionValues(character, counterattack)[0].value, 87);
 });
 
+test("rolls hit location for every attack action", async () => {
+  const rules = await loadRules();
+  for (const action of rules.COMBAT_ACTIONS.filter((item) => item.subtype.toLocaleLowerCase("ru").includes("атака") || item.id === "counterattack")) {
+    assert.equal(rules.combatActionRollsHitLocation(action), true, action.action);
+  }
+  assert.equal(rules.combatActionRollsHitLocation(rules.COMBAT_ACTIONS.find((item) => item.id === "dodge")), false);
+});
+
 test("accepts only Discord webhook URLs and builds safe roll embeds", async () => {
   const rules = await loadRules();
   assert.equal(rules.parseDiscordWebhookUrl("https://discord.com/api/webhooks/123456/token-value").toString(), "https://discord.com/api/webhooks/123456/token-value?wait=true");
@@ -374,6 +433,36 @@ test("accepts only Discord webhook URLs and builds safe roll embeds", async () =
   assert.match(characteristicPayload.embeds[0].description, /Порог — 47/);
   assert.equal(rules.validDiscordRoll({ kind: "characteristic", sides: 100, result: 31, characteristicName: "Сила", threshold: 47 }), true);
   assert.equal(rules.validDiscordRoll({ kind: "characteristic", sides: 100, result: 31, characteristicName: "", threshold: 47 }), false);
+  const hitLocation = { roll: 24, location: "Левая рука" };
+  const hitPayload = rules.discordMessagePayload({ characterName: "Лиза Ашвинг", kind: "hit-location", sides: 100, result: 24, hitLocation, embedColor: "#123abc" }, true);
+  assert.match(hitPayload.embeds[0].description, /Попадание в левую руку/);
+  assert.equal(hitPayload.embeds[0].color, 0x123abc);
+  assert.equal(rules.validDiscordRoll({ kind: "hit-location", sides: 100, result: 24, hitLocation }), true);
+  const combatHitPayload = rules.discordMessagePayload({ characterName: "Лиза Ашвинг", kind: "combat", sides: 100, result: 13, actionName: "Стандартная атака", checkLabel: "НР", threshold: 89, hitLocation }, true);
+  assert.match(combatHitPayload.embeds[0].description, /Атака попала в левую руку/);
+  assert.equal(rules.validDiscordRoll({ kind: "combat", sides: 100, result: 13, actionName: "Стандартная атака", checkLabel: "НР", threshold: 89, hitLocation }), true);
+  const initiativePayload = rules.discordMessagePayload({ characterName: "Лиза Ашвинг", kind: "initiative", sides: 10, result: 6, initiativeModifier: 8, initiativeTotal: 14, initiativeDoubled: true }, true);
+  assert.match(initiativePayload.embeds[0].description, /удвоен талантом/);
+  assert.equal(rules.validDiscordRoll({ kind: "initiative", sides: 10, result: 6, initiativeModifier: 8, initiativeTotal: 14 }), true);
+  const directDamagePayload = rules.discordMessagePayload({ characterName: "Лиза Ашвинг", kind: "damage", damage }, true);
+  assert.match(directDamagePayload.embeds[0].title, /Бросок урона/);
+  assert.equal(rules.validDiscordRoll({ kind: "damage", damage }), true);
+});
+
+test("maps every d100 hit-location boundary", async () => {
+  const rules = await loadRules();
+  assert.equal(rules.hitLocationForRoll(1), "Голова");
+  assert.equal(rules.hitLocationForRoll(10), "Голова");
+  assert.equal(rules.hitLocationForRoll(11), "Правая рука");
+  assert.equal(rules.hitLocationForRoll(20), "Правая рука");
+  assert.equal(rules.hitLocationForRoll(21), "Левая рука");
+  assert.equal(rules.hitLocationForRoll(30), "Левая рука");
+  assert.equal(rules.hitLocationForRoll(31), "Корпус");
+  assert.equal(rules.hitLocationForRoll(70), "Корпус");
+  assert.equal(rules.hitLocationForRoll(71), "Правая нога");
+  assert.equal(rules.hitLocationForRoll(85), "Правая нога");
+  assert.equal(rules.hitLocationForRoll(86), "Левая нога");
+  assert.equal(rules.hitLocationForRoll(100), "Левая нога");
 });
 
 test("calculates d100 skill successes, failures and critical results", async () => {

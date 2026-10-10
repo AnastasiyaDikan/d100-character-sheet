@@ -39,7 +39,7 @@ function supernaturalEffects(character: Character, id: CharacteristicId) {
   let additive = 0;
   for (const talent of character.talents) {
     for (const text of [talent.name, talent.properties]) {
-      const matches = text.matchAll(/(?:сверхъ?естественн[а-я]*|сверхчеловеческ[а-я]*)\s+([^().;:\n]{1,100}?)\s*\(\s*([xх×])?\s*(\d+(?:[.,]\d+)?)\s*\)/giu);
+      const matches = text.matchAll(/(?:сверхъ?естественн[а-я]*|сверхчеловеческ[а-я]*)\s+([^().;\n]{1,100}?)\s*\(\s*([xх×])?\s*(\d+(?:[.,]\d+)?)\s*\)/giu);
       for (const match of matches) {
         if (!descriptorIncludesCharacteristic(match[1], id)) continue;
         const value = Math.floor(Number(match[3].replace(",", ".")));
@@ -104,6 +104,35 @@ export function fatiguedEffectiveBonus(character: Character, id: CharacteristicI
   return applySupernatural(character, id, fatiguedBonus(character, id));
 }
 
+export function characteristicAdjustment(character: Character, id: CharacteristicId) {
+  const value = Number(character.characteristicAdjustments?.[id] ?? 0);
+  return Number.isFinite(value) ? Math.max(-200, Math.min(200, Math.trunc(value))) : 0;
+}
+
+/** Значение характеристики после усталости и временного ситуационного модификатора. */
+export function adjustedCharacteristicValue(character: Character, id: CharacteristicId) {
+  return Math.max(0, fatiguedCharacteristicValue(character, id) + characteristicAdjustment(character, id));
+}
+
+/**
+ * Порог чистой проверки. Временный эффект меняет значение, а бонус по правилу
+ * считается от исходной характеристики, как в примере 40 - 20 + 4 = 24.
+ */
+export function characteristicCheckValue(character: Character, id: CharacteristicId) {
+  return adjustedCharacteristicValue(character, id) + fatiguedEffectiveBonus(character, id);
+}
+
+/** Бонус для производных значений: КД, движения, переноски и урона. */
+export function adjustedEffectiveBonus(character: Character, id: CharacteristicId) {
+  return applySupernatural(character, id, Math.floor(adjustedCharacteristicValue(character, id) / 10));
+}
+
+/** Временный эффект без штрафа усталости — для самого порога Усталости. */
+export function adjustedUnfatiguedEffectiveBonus(character: Character, id: CharacteristicId) {
+  const value = Math.max(0, characteristicValue(character, id) + characteristicAdjustment(character, id));
+  return applySupernatural(character, id, Math.floor(value / 10));
+}
+
 export function skillModifier(level: number) {
   return [-20, 0, 10, 20, 30, 40][Math.max(0, Math.min(5, level))];
 }
@@ -111,8 +140,7 @@ export function skillModifier(level: number) {
 export function skillThreshold(character: Character, skillId: string) {
   const skill = character.skills.find((item) => item.id === skillId);
   if (!skill) return 0;
-  return fatiguedCharacteristicValue(character, skill.characteristic)
-    + fatiguedEffectiveBonus(character, skill.characteristic)
+  return characteristicCheckValue(character, skill.characteristic)
     + skillModifier(skill.level);
 }
 
@@ -145,11 +173,14 @@ export function recordedSpentExperience(character: Character) {
 
 export function zoneDefense(character: Character, zone: HitZone) {
   const armor = character.armor.filter((item) => item.zones.includes(zone)).reduce((sum, item) => sum + item.armor, 0);
-  return armor + character.naturalArmor + fatiguedEffectiveBonus(character, "endurance");
+  return armor + character.naturalArmor + adjustedEffectiveBonus(character, "endurance");
 }
 
 export function movement(character: Character) {
-  const agilityBonus = applySupernatural(character, "agility", Math.max(0, Math.min(10, fatiguedBonus(character, "agility"))));
+  // Как и раньше, обычный БЛ ограничен 10 до применения сверхъестественного
+  // эффекта; временный модификатор лишь меняет исходное значение Ловкости.
+  const ordinaryAgilityBonus = Math.max(0, Math.min(10, Math.floor(adjustedCharacteristicValue(character, "agility") / 10)));
+  const agilityBonus = applySupernatural(character, "agility", ordinaryAgilityBonus);
   return {
     free: agilityBonus === 0 ? 0.5 : agilityBonus,
     halfAction: agilityBonus === 0 ? 1 : agilityBonus * 2,
@@ -166,11 +197,11 @@ const carryTable = [
 ];
 
 export function carrying(character: Character) {
-  const index = Math.max(0, Math.min(20, fatiguedEffectiveBonus(character, "strength") + fatiguedEffectiveBonus(character, "endurance")));
+  const index = Math.max(0, Math.min(20, adjustedEffectiveBonus(character, "strength") + adjustedEffectiveBonus(character, "endurance")));
   const [carry, lift, push] = carryTable[index];
   return { index, carry, lift, push };
 }
 
 export function fatigueThreshold(character: Character) {
-  return effectiveBonus(character, "endurance") + effectiveBonus(character, "willpower");
+  return adjustedUnfatiguedEffectiveBonus(character, "endurance") + adjustedUnfatiguedEffectiveBonus(character, "willpower");
 }

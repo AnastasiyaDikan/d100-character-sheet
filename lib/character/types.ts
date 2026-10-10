@@ -121,6 +121,8 @@ export type Character = {
   avatar: string;
   avatarCrop: { x: number; y: number; zoom: number };
   characteristics: Record<CharacteristicId, Characteristic>;
+  /** Временные ситуационные бонусы и штрафы к проверкам характеристик. */
+  characteristicAdjustments: Record<CharacteristicId, number>;
   aptitudes: Record<CharacteristicId, number>;
   racialAptitudes: Record<CharacteristicId, number>;
   appliedAptitudes: Record<CharacteristicId, number>;

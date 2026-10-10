@@ -20,11 +20,12 @@ import SkillsPanel from "./SkillsPanel";
 import TalentCatalogDialog from "./TalentCatalogDialog";
 import TutorialGuide from "./TutorialGuide";
 import { CHARACTERISTICS, createCharacter, RACES } from "@/lib/character/data";
-import { carrying, EXPERIENCE_COSTS, fatigueEffect, fatiguedBonus, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillThreshold, spentExperience, supernaturalBonus, supernaturalMultiplier } from "@/lib/character/calculations";
+import { adjustedEffectiveBonus, carrying, characteristicAdjustment, characteristicCheckValue, EXPERIENCE_COSTS, fatigueEffect, fatiguedBonus, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillThreshold, spentExperience, supernaturalBonus, supernaturalMultiplier } from "@/lib/character/calculations";
 import { applyAptitudeCharacteristics, applyRace as applyRaceToCharacter, beginIndependentAptitudeDistribution, calculateNaturalArmor, calculateRaceWounds, independentAptitudeBudget } from "@/lib/character/race-engine";
 import { rollDie } from "@/lib/character/dice";
 import { createCharacterThumbnail, discordIsConnected, loadDiscordSettings, sendDiscordRoll } from "@/lib/character/discord-client";
 import { evaluateSkillCheck, type SkillCheckOutcome } from "@/lib/character/skill-check";
+import { formatWeaponDamage, rollWeaponDamage, type WeaponDamageResult } from "@/lib/character/weapon-damage";
 import { deleteAutosave, downloadCharacter, loadAutosave, normalizeCharacter, saveAutosave } from "@/lib/character/storage";
 import { FOLDER_AUTOSAVE_INTERVAL_MS, folderBindingStatus, saveCharacterToFolder, saveFolderAutosave } from "@/lib/character/file-storage";
 import type { Armor, Character, CharacteristicId, HitZone, InventoryItem, Race, Talent, Weapon } from "@/lib/character/types";
@@ -89,7 +90,7 @@ function StartScreen({ autosave, onNew, onLoad, onRestore, onDeleteAutosave }: {
         <label className="load-button"><FileUp /> Загрузить персонажа<input type="file" accept="application/json,.json" onChange={onLoad} /></label>
       </div>
       {autosave && <div className="autosave-card"><div><span>Найдено автосохранение</span><strong>{autosave.name || "Безымянный персонаж"}</strong><time>{new Date(autosave.savedAt).toLocaleString("ru-RU")}</time></div><div className="autosave-actions"><Button size="sm" onClick={onRestore}><RotateCcw /> Восстановить</Button><Button size="icon-sm" variant="ghost" aria-label="Удалить автосохранение" onClick={onDeleteAutosave}><Trash2 /></Button></div></div>}
-      <p className="version">Character Sheet v0.15.0</p>
+      <p className="version">Character Sheet v0.16.0</p>
     </section>
   </main>;
 }
@@ -124,10 +125,12 @@ function CharacteristicCard({ character, id, onChange }: { character: Character;
   type CharacteristicRoll = SkillCheckOutcome & { serial: number; delivery: "idle" | "sending" | "sent" | "error" };
   const [check, setCheck] = useState<CharacteristicRoll | null>(null);
   const item = character.characteristics[id];
-  const adjustedValue = fatiguedCharacteristicValue(character, id);
+  const fatiguedValue = fatiguedCharacteristicValue(character, id);
   const adjustedBonus = fatiguedBonus(character, id);
   const effectiveModifier = fatiguedEffectiveBonus(character, id);
-  const threshold = adjustedValue + effectiveModifier;
+  const derivedModifier = adjustedEffectiveBonus(character, id);
+  const adjustment = characteristicAdjustment(character, id);
+  const threshold = characteristicCheckValue(character, id);
   const effect = fatigueEffect(character, id);
   const multiplier = supernaturalMultiplier(character, id);
   const additive = supernaturalBonus(character, id);
@@ -151,12 +154,14 @@ function CharacteristicCard({ character, id, onChange }: { character: Character;
       result,
       characteristicName: item.label,
       threshold,
+      embedColor: discord.color,
     })).then(() => setCheck((current) => current?.serial === serial ? { ...current, delivery: "sent" } : current))
       .catch(() => setCheck((current) => current?.serial === serial ? { ...current, delivery: "error" } : current));
   };
-  return <article className={`characteristic-card ${effect !== "none" ? `fatigue-affected fatigue-${effect}` : ""}`}><header><span className="characteristic-name">{item.label}<button type="button" className="characteristic-roll-button" aria-label={`Проверка характеристики: ${item.label}`} title={`Бросить d100 против ${threshold}`} onClick={rollCharacteristic}><Dices /></button></span><abbr title={item.label}>{item.short}</abbr></header><div className="characteristic-body">
-    <label className="characteristic-value"><span>Значение</span><span className="characteristic-input-wrap"><input type="number" min="0" value={item.value === 0 ? "" : item.value} placeholder="0" onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateItem({ value: event.target.value === "" ? 0 : Number(event.target.value) })} />{effect !== "none" && <span className="fatigue-value-card" aria-live="polite"><small>{effect === "zero" ? "Истощение" : "Усталость"}</small><strong>{adjustedValue}</strong></span>}</span></label>
-    <span className="bonus-pill" title={effect !== "none" ? "Бонус пересчитан с учётом усталости" : supernaturalFormula ? `Сверхъестественная характеристика: ${supernaturalFormula}` : undefined}>Бонус {effectiveModifier}{supernaturalFormula ? ` (${supernaturalFormula})` : ""}</span>
+  return <article className={`characteristic-card ${effect !== "none" ? `fatigue-affected fatigue-${effect}` : ""} ${adjustment > 0 ? "characteristic-buffed" : adjustment < 0 ? "characteristic-debuffed" : ""}`}><header><span className="characteristic-name">{item.label}<button type="button" className="characteristic-roll-button" aria-label={`Проверка характеристики: ${item.label}`} title={`Бросить d100 против ${threshold}`} onClick={rollCharacteristic}><Dices /></button></span><abbr title={item.label}>{item.short}</abbr></header><div className="characteristic-body">
+    <label className="characteristic-value"><span>Значение</span><span className="characteristic-input-wrap"><input type="number" min="0" value={item.value === 0 ? "" : item.value} placeholder="0" onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateItem({ value: event.target.value === "" ? 0 : Number(event.target.value) })} />{effect !== "none" && <span className="fatigue-value-card" aria-live="polite"><small>{effect === "zero" ? "Истощение" : "Усталость"}</small><strong>{fatiguedValue}</strong></span>}</span></label>
+    <label className={`characteristic-adjustment ${adjustment > 0 ? "buff" : adjustment < 0 ? "debuff" : ""}`} title="Временный бонус или штраф. Например: -20 или 30"><span>Баф / штраф</span><input type="number" step="10" value={adjustment === 0 ? "" : adjustment} placeholder="±0" onFocus={(event) => event.currentTarget.select()} onChange={(event) => onChange({ ...character, characteristicAdjustments: { ...character.characteristicAdjustments, [id]: event.target.value === "" ? 0 : Number(event.target.value) } })} /></label>
+    <span className="bonus-pill" title={effect !== "none" ? "Бонус пересчитан с учётом усталости" : supernaturalFormula ? `Сверхъестественная характеристика: ${supernaturalFormula}` : undefined}>Бонус {effectiveModifier}{supernaturalFormula ? ` (${supernaturalFormula})` : ""}<small>Проверка {threshold}{derivedModifier !== effectiveModifier ? ` · производный ${derivedModifier}` : ""}</small></span>
     <div className="advance-vertical" aria-label={`Развитие: ${item.advances} из 5`}>{[1, 2, 3, 4, 5].map((step) => <button key={step} className={step <= item.advances ? "active" : ""} aria-label={`${step} ступень развития`} onClick={() => { const next = item.advances === step ? step - 1 : step; updateItem({ advances: next, value: Math.max(0, item.value + (next - item.advances) * 5) }); }} />)}</div>
   </div>{check && <output className={`characteristic-roll-result ${check.passed ? "passed" : "failed"}`} aria-live="polite"><strong>{check.roll}</strong><span>{check.text}</span>{check.delivery !== "idle" && <small className={check.delivery}>{check.delivery === "sending" && <><LoaderCircle className="spin" /> Discord…</>}{check.delivery === "sent" && <><CheckCircle2 /> Отправлено</>}{check.delivery === "error" && <><AlertTriangle /> Не отправлено</>}</small>}</output>}</article>;
 }
@@ -268,8 +273,29 @@ function FrontPage({ character, onChange, onRaceOpen }: { character: Character; 
   </div>;
 }
 
-function WeaponCard({ weapon, onChange, onActiveChange, onDelete }: { weapon: Weapon; onChange: (weapon: Weapon) => void; onActiveChange: (active: boolean) => void; onDelete: () => void }) {
+function WeaponCard({ character, weapon, onChange, onActiveChange, onDelete }: { character: Character; weapon: Weapon; onChange: (weapon: Weapon) => void; onActiveChange: (active: boolean) => void; onDelete: () => void }) {
+  const [damageRoll, setDamageRoll] = useState<(WeaponDamageResult & { serial: number; delivery: "idle" | "sending" | "sent" | "error" }) | null>(null);
+  const [damageError, setDamageError] = useState(false);
   const field = (key: keyof Weapon, label: string) => <Field label={label} value={String(weapon[key])} onChange={(value) => onChange({ ...weapon, [key]: value })} />;
+  const throwDamage = () => {
+    const plainOutcome: SkillCheckOutcome = { roll: 50, threshold: 50, passed: true, critical: null, successes: 0, failures: 0, text: "" };
+    const damage = rollWeaponDamage(character, weapon, plainOutcome);
+    if (!damage) { setDamageError(true); setDamageRoll(null); return; }
+    const serial = Date.now() + Math.random();
+    const discord = loadDiscordSettings(character.characterId);
+    setDamageError(false);
+    setDamageRoll({ ...damage, serial, delivery: discordIsConnected(discord) ? "sending" : "idle" });
+    if (!discordIsConnected(discord)) return;
+    void createCharacterThumbnail(character).then((avatar) => sendDiscordRoll({
+      webhookUrl: discord.webhookUrl,
+      characterName: character.name.trim() || "Безымянный персонаж",
+      avatar,
+      kind: "damage",
+      damage,
+      embedColor: discord.color,
+    })).then(() => setDamageRoll((current) => current?.serial === serial ? { ...current, delivery: "sent" } : current))
+      .catch(() => setDamageRoll((current) => current?.serial === serial ? { ...current, delivery: "error" } : current));
+  };
   return <article className={`equipment-card weapon-card ${weapon.active ? "active-weapon" : ""}`}>
     <header>
       <input value={weapon.name} placeholder="Название оружия" onChange={(event) => onChange({ ...weapon, name: event.target.value })} />
@@ -293,6 +319,9 @@ function WeaponCard({ weapon, onChange, onActiveChange, onDelete }: { weapon: We
           <label className={weapon.damageMode === 0 ? "selected" : ""}><button type="button" onClick={() => onChange({ ...weapon, damageMode: 0 })}>Одна рука</button><input value={weapon.damageOneHand} placeholder="к8" onChange={(event) => onChange({ ...weapon, damageOneHand: event.target.value })} /></label>
           <label className={weapon.damageMode === 1 ? "selected" : ""}><button type="button" onClick={() => onChange({ ...weapon, damageMode: 1 })}>Две руки</button><input value={weapon.damageTwoHands} placeholder="к10" onChange={(event) => onChange({ ...weapon, damageTwoHands: event.target.value })} /></label>
           <label className="weapon-extra-damage"><span>Доп. урон:</span><input value={weapon.extraDamage} placeholder="к12+к10+к4" onChange={(event) => onChange({ ...weapon, extraDamage: event.target.value })} /></label>
+          <button type="button" className="weapon-damage-roll-button" onClick={throwDamage}><Dices /> Бросить урон</button>
+          {damageRoll && <output className="weapon-damage-roll-result" aria-live="polite"><strong>{damageRoll.total}</strong><span>{formatWeaponDamage(damageRoll)}</span>{damageRoll.delivery !== "idle" && <small className={damageRoll.delivery}>{damageRoll.delivery === "sending" ? "Discord…" : damageRoll.delivery === "sent" ? "Отправлено" : "Не отправлено"}</small>}</output>}
+          {damageError && <p className="weapon-damage-roll-error"><AlertTriangle /> Укажите основной урон: например, к8 или 2к10+3.</p>}
         </div>
         <div className="wide">{field("properties", "Свойства")}</div>
       </div>
@@ -311,7 +340,7 @@ function BackPage({ character, onChange }: { character: Character; onChange: (ch
   const addArmor = () => update("armor", [...character.armor, { id: uid("armor"), name: "Новый доспех", type: "", armor: 0, properties: "", zones: [] }]);
   const addInventory = () => update("inventory", [...character.inventory, { id: uid("item"), name: "", cost: "", properties: "" }]);
   return <div className="sheet-page back-page"><div className="back-grid"><div className="equipment-column">
-    <section className="panel equipment-section"><div className="section-heading"><h2>Оружие</h2><Button size="xs" variant="ghost" onClick={addWeapon}><Plus /> Добавить</Button></div><div className="equipment-scroll">{character.weapons.length === 0 && <p className="empty-copy">Добавьте первое оружие.</p>}{character.weapons.map((weapon) => <WeaponCard key={weapon.id} weapon={weapon} onChange={(next) => update("weapons", character.weapons.map((item) => item.id === weapon.id ? next : item))} onActiveChange={(active) => update("weapons", character.weapons.map((item) => ({ ...item, active: item.id === weapon.id ? active : active ? false : item.active })))} onDelete={() => update("weapons", character.weapons.filter((item) => item.id !== weapon.id))} />)}</div></section>
+    <section className="panel equipment-section"><div className="section-heading"><h2>Оружие</h2><Button size="xs" variant="ghost" onClick={addWeapon}><Plus /> Добавить</Button></div><div className="equipment-scroll">{character.weapons.length === 0 && <p className="empty-copy">Добавьте первое оружие.</p>}{character.weapons.map((weapon) => <WeaponCard key={weapon.id} character={character} weapon={weapon} onChange={(next) => update("weapons", character.weapons.map((item) => item.id === weapon.id ? next : item))} onActiveChange={(active) => update("weapons", character.weapons.map((item) => ({ ...item, active: item.id === weapon.id ? active : active ? false : item.active })))} onDelete={() => update("weapons", character.weapons.filter((item) => item.id !== weapon.id))} />)}</div></section>
     <section className="panel equipment-section"><div className="section-heading"><h2>Броня</h2><Button size="xs" variant="ghost" onClick={addArmor}><Plus /> Добавить</Button></div><div className="equipment-scroll armor-scroll">{character.armor.length === 0 && <p className="empty-copy">Карта попаданий пока учитывает только Бонус Выносливости.</p>}{character.armor.map((armor) => <ArmorCard key={armor.id} armor={armor} onChange={(next) => update("armor", character.armor.map((item) => item.id === armor.id ? next : item))} onDelete={() => update("armor", character.armor.filter((item) => item.id !== armor.id))} />)}</div></section>
     <section className="panel derived-panel"><div><h3>Движение</h3><dl><div><dt>Свободное</dt><dd>{move.free}</dd></div><div><dt>Полудействие</dt><dd>{move.halfAction}</dd></div><div><dt>Натиск</dt><dd>{move.charge}</dd></div><div><dt>Бег</dt><dd>{move.run}</dd></div></dl></div><div><h3>Носить / поднимать</h3><dl><div><dt>Носить</dt><dd>{carry.carry} кг</dd></div><div><dt>Поднимать</dt><dd>{carry.lift} кг</dd></div><div><dt>Толкать</dt><dd>{carry.push} кг</dd></div></dl></div><div><h3>Усталость</h3><div className="threshold-display"><span>Порог</span><strong>{fatigue}</strong></div><NumberField label="Сейчас" value={character.fatigueCurrent} onChange={(value) => update("fatigueCurrent", value)} /><p className="fatigue-rule-note">При достижении обычного бонуса характеристика уменьшается вдвое, при двойном значении — до 0.</p></div></section>
     <section className="panel experience-cost-panel"><div className="section-heading"><h2>Стоимость развития за опыт</h2><span>ступень покупки</span></div><table><thead><tr><th>Склонности</th>{[1, 2, 3, 4, 5].map((step) => <th key={step}>{step}</th>)}</tr></thead><tbody><tr><th>Две точки</th>{EXPERIENCE_COSTS.twoAptitudes.map((cost, index) => <td key={index}>{cost}</td>)}</tr><tr><th>Одна точка</th>{EXPERIENCE_COSTS.oneAptitude.map((cost, index) => <td key={index}>{cost}</td>)}</tr><tr><th>Без точек</th>{EXPERIENCE_COSTS.noAptitudes.map((cost, index) => <td key={index}>{cost}</td>)}</tr></tbody></table></section>
@@ -408,7 +437,7 @@ export default function CharacterSheetApp() {
     // These values are persisted for export, so keep the stored snapshot in sync with its formula.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (total !== character.woundsTotal || naturalArmor !== character.naturalArmor) setCharacter((current) => ({ ...current, woundsTotal: total, naturalArmor }));
-  }, [character.characteristics, character.talents, character.raceId, character.woundsTotal, character.naturalArmor, currentRace]);
+  }, [character.characteristics, character.characteristicAdjustments, character.fatigueCurrent, character.talents, character.raceId, character.woundsTotal, character.naturalArmor, currentRace]);
   const beginNew = () => {
     setCharacter(createNewCharacter()); setPage("front");
     if (localStorage.getItem("d100-skip-tutorial") === "true") setScreen("sheet"); else setTutorialPrompt(true);

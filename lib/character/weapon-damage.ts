@@ -1,4 +1,4 @@
-import { fatiguedEffectiveBonus } from "./calculations";
+import { adjustedEffectiveBonus } from "./calculations";
 import { rollDie } from "./dice";
 import type { SkillCheckOutcome } from "./skill-check";
 import type { Character, Weapon } from "./types";
@@ -111,6 +111,13 @@ function expandDice(parsed: ParsedDamageExpression) {
 }
 
 export function formatWeaponDamage(result: WeaponDamageResult) {
+  // Старые сохранения и старые Discord-запросы содержат общий тип куба,
+  // но ещё не содержат подробный список rollDetails.
+  if (!Array.isArray(result.rollDetails)) {
+    const rolls = Array.isArray(result.rolls) ? result.rolls : [];
+    const rollText = rolls.join(" + ");
+    return `${result.diceCount}d${result.sides}: ${rollText} ${result.characteristicModifier >= 0 ? "+" : "−"}${Math.abs(result.characteristicModifier)}${result.fixedModifier ? ` ${result.fixedModifier >= 0 ? "+" : "−"}${Math.abs(result.fixedModifier)}` : ""} = ${result.total}`;
+  }
   const group = (kinds: DamageDieRoll["kind"][], label: string) => {
     const values = result.rollDetails.filter((roll) => kinds.includes(roll.kind));
     return values.length ? `${label}: ${values.map((roll) => `d${roll.sides}[${roll.value}]`).join(" + ")}` : "";
@@ -162,7 +169,7 @@ export function rollWeaponDamage(
   }
 
   for (const sides of expandDice(extra)) rollDetails.push({ kind: "extra", sides, value: roller(sides) });
-  const characteristicModifier = fatiguedEffectiveBonus(character, weapon.damageCharacteristic);
+  const characteristicModifier = adjustedEffectiveBonus(character, weapon.damageCharacteristic);
   const fixedModifier = parsed.fixedModifier + extra.fixedModifier;
   const rolls = rollDetails.map((roll) => roll.value);
   return {

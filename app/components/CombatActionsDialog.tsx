@@ -6,9 +6,10 @@ import { AlertTriangle, ArrowUpRight, CheckCircle2, Dices, Info, LoaderCircle, R
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { COMBAT_ACTIONS, COMBAT_RANK_LABELS, combatActionValues, mainSkillRank, selectedCombatRank } from "@/lib/character/combat";
+import { COMBAT_ACTIONS, COMBAT_RANK_LABELS, combatActionRollsHitLocation, combatActionValues, mainSkillRank, selectedCombatRank } from "@/lib/character/combat";
 import { rollDie } from "@/lib/character/dice";
 import { createCharacterThumbnail, discordIsConnected, loadDiscordSettings, sendDiscordRoll } from "@/lib/character/discord-client";
+import { hitLocationAccusative, rollHitLocation, type HitLocationResult } from "@/lib/character/hit-location";
 import { evaluateSkillCheck, type SkillCheckOutcome } from "@/lib/character/skill-check";
 import { formatWeaponDamage, rollWeaponDamage, type WeaponDamageResult } from "@/lib/character/weapon-damage";
 import type { Character, CombatSettings, CombatSkillRank } from "@/lib/character/types";
@@ -19,6 +20,7 @@ type CombatRoll = SkillCheckOutcome & {
   serial: number;
   damage: WeaponDamageResult | null;
   damageError: boolean;
+  hitLocation: HitLocationResult | null;
   delivery: "idle" | "sending" | "sent" | "error";
 };
 
@@ -50,22 +52,31 @@ export default function CombatActionsDialog({ character, onChange }: { character
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
   const [combatRoll, setCombatRoll] = useState<CombatRoll | null>(null);
   const settings = character.combatSettings;
-  const actions = COMBAT_ACTIONS.filter((action) => !action.requiresCounterattack || settings.counterattack);
+  const priority = ["standard-attack", "all-out-attack", "charge", "dodge", "parry-weapon", "parry-shield", "feint"];
+  const actions = COMBAT_ACTIONS.filter((action) => !action.requiresCounterattack || settings.counterattack)
+    .sort((left, right) => {
+      const leftIndex = priority.indexOf(left.id), rightIndex = priority.indexOf(right.id);
+      if (leftIndex === -1 && rightIndex === -1) return 0;
+      if (leftIndex === -1) return 1;
+      if (rightIndex === -1) return -1;
+      return leftIndex - rightIndex;
+    });
   const update = (patch: Partial<CombatSettings>) => onChange({ ...character, combatSettings: { ...settings, ...patch } });
   const showDescription = (event: MouseEvent, text: string) => setTooltip({
     text,
     x: Math.max(12, event.clientX - 350),
     y: Math.max(12, Math.min(window.innerHeight - 150, event.clientY - 18)),
   });
-  const rollCombatCheck = (actionId: string, actionName: string, label: string, threshold: number, dealsDamage: boolean) => {
+  const rollCombatCheck = (actionId: string, actionName: string, label: string, threshold: number, dealsDamage: boolean, rollsHitLocation: boolean) => {
     const result = rollDie(100);
     const serial = Date.now() + Math.random();
     const outcome = evaluateSkillCheck(threshold, result);
     const activeWeapon = character.weapons.find((weapon) => weapon.active);
     const damage = outcome.passed && dealsDamage && activeWeapon ? rollWeaponDamage(character, activeWeapon, outcome) : null;
+    const hitLocation = outcome.passed && rollsHitLocation ? rollHitLocation(() => rollDie(100)) : null;
     const damageError = Boolean(outcome.passed && dealsDamage && activeWeapon && !damage);
     const discord = loadDiscordSettings(character.characterId);
-    setCombatRoll({ ...outcome, actionId, label, serial, damage, damageError, delivery: discordIsConnected(discord) ? "sending" : "idle" });
+    setCombatRoll({ ...outcome, actionId, label, serial, damage, damageError, hitLocation, delivery: discordIsConnected(discord) ? "sending" : "idle" });
     if (!discordIsConnected(discord)) return;
     void createCharacterThumbnail(character).then((avatar) => sendDiscordRoll({
       webhookUrl: discord.webhookUrl,
@@ -78,6 +89,8 @@ export default function CombatActionsDialog({ character, onChange }: { character
       checkLabel: label,
       threshold,
       damage: damage ?? undefined,
+      hitLocation: hitLocation ?? undefined,
+      embedColor: discord.color,
     })).then(() => {
       setCombatRoll((current) => current?.serial === serial ? { ...current, delivery: "sent" } : current);
     }).catch(() => {
@@ -114,7 +127,7 @@ export default function CombatActionsDialog({ character, onChange }: { character
               const values = combatActionValues(character, action);
               const currentRoll = combatRoll?.actionId === action.id ? combatRoll : null;
               return <tr key={action.id} onMouseMove={(event) => showDescription(event, action.description)} onMouseLeave={() => setTooltip(null)}>
-                <th><span>{action.action}</span><Info aria-hidden="true" /></th><td>{action.type}</td><td>{action.subtype}</td><td><div className="combat-values">{values.map((item) => item.value === null ? <span key={item.label} className="combat-value empty" title={item.explanation}>{item.label}</span> : <span key={item.label} className="combat-value" title={item.explanation}><small>{item.label}</small><strong>{item.value}</strong><button className={`combat-roll-button ${item.label === "НР" ? "melee" : item.label === "НС" ? "shooting" : ""}`} aria-label={`Бросить d100: ${action.action}, ${item.label}`} title={`Бросить d100 против ${item.value}`} onClick={(event) => { event.stopPropagation(); rollCombatCheck(action.id, action.action, item.label, item.value!, action.dealsDamage === true); }}>{rollIcon(item.label)}</button></span>)}</div>{currentRoll && <output className={`combat-roll-result ${currentRoll.passed ? "passed" : "failed"}`} aria-live="polite"><strong>{currentRoll.roll}</strong><span>{currentRoll.text}</span>{currentRoll.damage && <span className="combat-damage-result"><b>Урон: {currentRoll.damage.total}</b><small>{currentRoll.damage.weaponName} · {formatWeaponDamage(currentRoll.damage)}</small></span>}{currentRoll.damageError && <small className="damage-error"><AlertTriangle /> Урон не брошен: используйте запись к8, 2к8+3 или к12+к10+к4.</small>}{currentRoll.delivery !== "idle" && <small className={currentRoll.delivery}>{currentRoll.delivery === "sending" && <><LoaderCircle className="spin" /> Discord…</>}{currentRoll.delivery === "sent" && <><CheckCircle2 /> Отправлено</>}{currentRoll.delivery === "error" && <><AlertTriangle /> Не отправлено</>}</small>}</output>}</td>
+                <th><span>{action.action}</span><Info aria-hidden="true" /></th><td>{action.type}</td><td>{action.subtype}</td><td><div className="combat-values">{values.map((item) => item.value === null ? <span key={item.label} className="combat-value empty" title={item.explanation}>{item.label}</span> : <span key={item.label} className="combat-value" title={item.explanation}><small>{item.label}</small><strong>{item.value}</strong><button className={`combat-roll-button ${item.label === "НР" ? "melee" : item.label === "НС" ? "shooting" : ""}`} aria-label={`Бросить d100: ${action.action}, ${item.label}`} title={`Бросить d100 против ${item.value}`} onClick={(event) => { event.stopPropagation(); rollCombatCheck(action.id, action.action, item.label, item.value!, action.dealsDamage === true, combatActionRollsHitLocation(action)); }}>{rollIcon(item.label)}</button></span>)}</div>{currentRoll && <output className={`combat-roll-result ${currentRoll.passed ? "passed" : "failed"}`} aria-live="polite"><strong>{currentRoll.roll}</strong><span>{currentRoll.text}</span>{currentRoll.damage && <span className="combat-damage-result"><b>Урон: {currentRoll.damage.total}</b><small>{currentRoll.damage.weaponName} · {formatWeaponDamage(currentRoll.damage)}</small></span>}{currentRoll.hitLocation && <span className="combat-hit-location"><b>Попадание: {currentRoll.hitLocation.roll}</b><small>Атака попала в {hitLocationAccusative(currentRoll.hitLocation.location)}</small></span>}{currentRoll.damageError && <small className="damage-error"><AlertTriangle /> Урон не брошен: используйте запись к8, 2к8+3 или к12+к10+к4.</small>}{currentRoll.delivery !== "idle" && <small className={currentRoll.delivery}>{currentRoll.delivery === "sending" && <><LoaderCircle className="spin" /> Discord…</>}{currentRoll.delivery === "sent" && <><CheckCircle2 /> Отправлено</>}{currentRoll.delivery === "error" && <><AlertTriangle /> Не отправлено</>}</small>}</output>}</td>
               </tr>;
             })}</tbody></table>
           </section>

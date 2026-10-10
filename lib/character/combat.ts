@@ -1,4 +1,4 @@
-import { fatiguedCharacteristicValue, fatiguedEffectiveBonus } from "./calculations";
+import { adjustedCharacteristicValue, characteristicAdjustment, fatiguedEffectiveBonus } from "./calculations";
 import type { Character, CharacteristicId, CombatSkillRank } from "./types";
 
 export type CombatCheckKind = "none" | "melee" | "shooting" | "both" | "parry-weapon" | "parry-shield" | "dodge" | "strength" | "skill" | "counterattack";
@@ -46,6 +46,12 @@ export const COMBAT_ACTIONS: CombatAction[] = [
 
 export const COMBAT_RANK_LABELS = ["Know", "+10", "+20", "+30", "+40"] as const;
 
+export function combatActionRollsHitLocation(action: CombatAction) {
+  return action.dealsDamage === true
+    || action.subtype.toLocaleLowerCase("ru").includes("атака")
+    || action.id === "counterattack";
+}
+
 export function mainSkillRank(character: Character, skillId: "parry" | "dodge"): CombatSkillRank {
   const level = character.skills.find((skill) => skill.id === skillId)?.level ?? 0;
   return Math.max(0, Math.min(5, level)) as CombatSkillRank;
@@ -61,9 +67,13 @@ function rankModifier(rank: CombatSkillRank) {
 }
 
 function characteristicBase(character: Character, id: CharacteristicId) {
-  const value = fatiguedCharacteristicValue(character, id);
+  const value = adjustedCharacteristicValue(character, id);
   const bonus = fatiguedEffectiveBonus(character, id);
-  return { value: value + bonus, explanation: `${character.characteristics[id].short} ${value} + модификатор ${bonus}` };
+  const adjustment = characteristicAdjustment(character, id);
+  return {
+    value: value + bonus,
+    explanation: `${character.characteristics[id].short} ${value} + исходный модификатор ${bonus}${adjustment ? `; временный эффект ${adjustment > 0 ? "+" : ""}${adjustment}` : ""}`,
+  };
 }
 
 export function sharedWeaponBonus(character: Character) {
@@ -104,7 +114,7 @@ function attackValue(character: Character, id: "melee" | "shooting", action: Com
 
 export function combatActionValues(character: Character, action: CombatAction): CombatActionValue[] {
   if (action.check === "counterattack") {
-    const characteristic = fatiguedCharacteristicValue(character, "melee");
+    const characteristic = adjustedCharacteristicValue(character, "melee");
     const modifier = fatiguedEffectiveBonus(character, "melee");
     const expert = character.combatSettings.expert ? 10 : 0;
     const shoulder = character.combatSettings.shoulderToShoulder;

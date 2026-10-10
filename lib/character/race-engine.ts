@@ -1,5 +1,5 @@
 import { CHARACTERISTICS } from "./data";
-import { effectiveBonus } from "./calculations";
+import { adjustedEffectiveBonus, effectiveBonus } from "./calculations";
 import type { Character, CharacteristicId, Race, RaceEffect, Talent } from "./types";
 
 const uid = (prefix: string) => `${prefix}-${globalThis.crypto?.randomUUID?.() ?? Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -36,7 +36,7 @@ export function calculateRaceWounds(character: Character, race: Race) {
 export function calculateNaturalArmor(character: Character, race: Race) {
   if (!race.naturalArmorFormula) return character.naturalArmor;
   const raw = race.naturalArmorFormula.base
-    + effectiveBonus(character, "endurance") * race.naturalArmorFormula.enduranceMultiplier;
+    + adjustedEffectiveBonus(character, "endurance") * race.naturalArmorFormula.enduranceMultiplier;
   return race.naturalArmorFormula.round === "ceil" ? Math.ceil(raw) : Math.floor(raw);
 }
 
