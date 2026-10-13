@@ -28,3 +28,8 @@ test("uses a twenty minute folder autosave interval", async () => {
   const { FOLDER_AUTOSAVE_INTERVAL_MS } = await vite.ssrLoadModule("/lib/character/file-storage.ts");
   assert.equal(FOLDER_AUTOSAVE_INTERVAL_MS, 1_200_000);
 });
+
+test("reports a structured missing binding when direct folder saving is unavailable", async () => {
+  const { folderBindingDetails } = await vite.ssrLoadModule("/lib/character/file-storage.ts");
+  assert.deepEqual(await folderBindingDetails("character-test"), { status: "missing" });
+});

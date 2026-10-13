@@ -28,7 +28,7 @@ import { createCharacterThumbnail, discordIsConnected, loadDiscordSettings, send
 import { evaluateSkillCheck, type SkillCheckOutcome } from "@/lib/character/skill-check";
 import { formatWeaponDamage, rollWeaponDamage, type WeaponDamageResult } from "@/lib/character/weapon-damage";
 import { deleteAutosave, downloadCharacter, loadAutosave, normalizeCharacter, saveAutosave } from "@/lib/character/storage";
-import { FOLDER_AUTOSAVE_INTERVAL_MS, folderBindingStatus, saveCharacterToFolder, saveFolderAutosave } from "@/lib/character/file-storage";
+import { FOLDER_AUTOSAVE_INTERVAL_MS, folderBindingDetails, saveCharacterToFolder, saveFolderAutosave } from "@/lib/character/file-storage";
 import type { Armor, Character, CharacteristicId, HitZone, InventoryItem, Race, Talent, Weapon } from "@/lib/character/types";
 
 const SKILL_LEVELS = ["Know", "+10", "+20", "+30", "+40"];
@@ -91,7 +91,7 @@ function StartScreen({ autosave, onNew, onLoad, onRestore, onDeleteAutosave }: {
         <label className="load-button"><FileUp /> Загрузить персонажа<input type="file" accept="application/json,.json" onChange={onLoad} /></label>
       </div>
       {autosave && <div className="autosave-card"><div><span>Найдено автосохранение</span><strong>{autosave.name || "Безымянный персонаж"}</strong><time>{new Date(autosave.savedAt).toLocaleString("ru-RU")}</time></div><div className="autosave-actions"><Button size="sm" onClick={onRestore}><RotateCcw /> Восстановить</Button><Button size="icon-sm" variant="ghost" aria-label="Удалить автосохранение" onClick={onDeleteAutosave}><Trash2 /></Button></div></div>}
-      <p className="version">Character Sheet v0.17.0</p>
+      <p className="version">Character Sheet v0.17.1</p>
     </section>
   </main>;
 }
@@ -359,6 +359,16 @@ function NotesPage({ character, onChange }: { character: Character; onChange: (c
 
 type SheetPage = "front" | "back" | "notes";
 const PAGE_ORDER: SheetPage[] = ["front", "back", "notes"];
+type FileSaveState = "idle" | "saving" | "saved" | "autosaved" | "downloaded" | "permission-needed" | "error";
+
+function formatSavedAt(value: string): string {
+  return new Date(value).toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 export default function CharacterSheetApp() {
   const [screen, setScreen] = useState<"start" | "sheet">("start");
@@ -372,6 +382,11 @@ export default function CharacterSheetApp() {
   const [lastFolderSavedAt, setLastFolderSavedAt] = useState("");
   const [folderBound, setFolderBound] = useState(false);
   const [folderPermissionReady, setFolderPermissionReady] = useState(false);
+  const [folderName, setFolderName] = useState("");
+  const [mainFileName, setMainFileName] = useState("");
+  const [backupFileName, setBackupFileName] = useState("");
+  const [fileSaveState, setFileSaveState] = useState<FileSaveState>("idle");
+  const [fileSaveError, setFileSaveError] = useState("");
   const [raceOpen, setRaceOpen] = useState(false);
   const [tutorialPrompt, setTutorialPrompt] = useState(false);
   const [tutorialStep, setTutorialStep] = useState<number | null>(null);
@@ -381,6 +396,8 @@ export default function CharacterSheetApp() {
   const [fatigueState, setFatigueState] = useState<"unconscious" | "dead" | null>(null);
   const previousFatigue = useRef(0);
   const characterRef = useRef(character);
+  const lastFolderSavedAtRef = useRef("");
+  const folderSaveInFlight = useRef(false);
 
   useEffect(() => { loadAutosave().then(setAutosave).catch(() => setAutosave(null)); }, []);
   useEffect(() => { characterRef.current = character; }, [character]);
@@ -389,10 +406,24 @@ export default function CharacterSheetApp() {
     setFolderBound(false);
     setFolderPermissionReady(false);
     setLastFolderSavedAt("");
-    folderBindingStatus(character.characterId).then((status) => {
+    lastFolderSavedAtRef.current = "";
+    setFolderName("");
+    setMainFileName("");
+    setBackupFileName("");
+    setFileSaveState("idle");
+    setFileSaveError("");
+    folderBindingDetails(character.characterId).then((details) => {
       if (!active) return;
-      setFolderBound(status !== "missing");
-      setFolderPermissionReady(status === "ready");
+      setFolderBound(details.status !== "missing");
+      setFolderPermissionReady(details.status === "ready");
+      setFolderName(details.directoryName ?? "");
+      setMainFileName(details.mainFileName ?? "");
+      setBackupFileName(details.backupFileName ?? "");
+      if (details.lastSavedAt) {
+        setLastFolderSavedAt(details.lastSavedAt);
+        lastFolderSavedAtRef.current = details.lastSavedAt;
+      }
+      if (details.status === "permission-needed") setFileSaveState("permission-needed");
     }).catch(() => { if (active) setFolderBound(false); });
     return () => { active = false; };
   }, [character.characterId]);
@@ -407,16 +438,48 @@ export default function CharacterSheetApp() {
   }, [character, screen]);
   useEffect(() => {
     if (screen !== "sheet" || !folderBound || !folderPermissionReady) return;
-    const timer = window.setInterval(async () => {
+    let active = true;
+    const runFolderAutosave = async (force: boolean) => {
+      if (folderSaveInFlight.current) return;
+      const previous = Date.parse(lastFolderSavedAtRef.current);
+      if (!force && Number.isFinite(previous) && Date.now() - previous < FOLDER_AUTOSAVE_INTERVAL_MS) return;
+      folderSaveInFlight.current = true;
       try {
-        const savedAt = await saveFolderAutosave(characterRef.current);
-        if (savedAt) setLastFolderSavedAt(savedAt);
+        const result = await saveFolderAutosave(characterRef.current);
+        if (!active) return;
+        if (!result) {
+          setFolderPermissionReady(false);
+          setFileSaveState("permission-needed");
+          return;
+        }
+        setLastFolderSavedAt(result.savedAt);
+        lastFolderSavedAtRef.current = result.savedAt;
+        setFolderName(result.directoryName);
+        setBackupFileName(result.backupFileName);
+        setFileSaveState("autosaved");
+        setFileSaveError("");
       } catch {
-        // The fast IndexedDB draft remains available if the folder was moved
-        // or the browser revoked permission while the sheet was open.
+        if (!active) return;
+        setFileSaveState("error");
+        setFileSaveError("Автосейв не смог записать файл. Нажмите «Сохранить JSON» и снова разрешите доступ к папке.");
+      } finally {
+        folderSaveInFlight.current = false;
       }
-    }, FOLDER_AUTOSAVE_INTERVAL_MS);
-    return () => window.clearInterval(timer);
+    };
+    // Verify the binding shortly after opening the sheet instead of waiting
+    // twenty minutes before the first visible backup update.
+    const initial = window.setTimeout(() => void runFolderAutosave(true), 1_200);
+    const timer = window.setInterval(() => void runFolderAutosave(true), FOLDER_AUTOSAVE_INTERVAL_MS);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void runFolderAutosave(false);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      active = false;
+      window.clearTimeout(initial);
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [folderBound, folderPermissionReady, screen, character.characterId]);
   useEffect(() => {
     if (screen !== "sheet") return;
@@ -465,20 +528,63 @@ export default function CharacterSheetApp() {
     setRaceOpen(false);
   };
   const saveJson = async (chooseAnotherFolder = false) => {
+    if (fileSaveState === "saving") return;
+    setFileSaveState("saving");
+    setFileSaveError("");
     try {
-      const result = await saveCharacterToFolder(character, chooseAnotherFolder);
+      // A fresh picker must be the first browser operation after the click;
+      // otherwise Chromium can discard the short-lived user permission.
+      const result = await saveCharacterToFolder(character, chooseAnotherFolder || !folderBound);
       if (result.kind === "unsupported") {
         downloadCharacter(character);
+        setFileSaveState("downloaded");
         return;
       }
-      if (result.kind === "cancelled") return;
+      if (result.kind === "cancelled") {
+        setFileSaveState("idle");
+        return;
+      }
+      if (result.kind === "folder-needed") {
+        setFolderBound(false);
+        setFolderPermissionReady(false);
+        setFileSaveState("error");
+        setFileSaveError("Папка сохранения потеряна. Нажмите кнопку ещё раз и выберите её заново.");
+        return;
+      }
       setFolderBound(true);
       setFolderPermissionReady(true);
       setLastFolderSavedAt(result.savedAt);
-    } catch {
-      window.alert("Не удалось записать JSON в выбранную папку. Проверьте, что папка доступна, и разрешите браузеру сохранять в неё файлы.");
+      lastFolderSavedAtRef.current = result.savedAt;
+      setFolderName(result.directoryName);
+      setMainFileName(result.mainFileName);
+      setBackupFileName(result.backupFileName);
+      setFileSaveState("saved");
+    } catch (error) {
+      setFolderPermissionReady(false);
+      setFileSaveState("error");
+      setFileSaveError(error instanceof DOMException && error.name === "NotAllowedError"
+        ? "Браузер не дал доступ к папке. Нажмите «Сохранить JSON» и выберите «Разрешить»."
+        : "Не удалось записать JSON. Нажмите значок папки и выберите доступную папку заново.");
     }
   };
+  const saveStatusText = fileSaveState === "saving"
+    ? "Сохраняю основной файл и резервную копию…"
+    : fileSaveState === "error"
+      ? fileSaveError
+      : fileSaveState === "permission-needed"
+        ? `Папка${folderName ? ` «${folderName}»` : ""} привязана · нажмите «Сохранить JSON», чтобы разрешить запись`
+        : fileSaveState === "downloaded"
+          ? "JSON скачан · прямой автосейв папки не поддерживается этим браузером"
+          : folderBound
+            ? `${fileSaveState === "autosaved" ? "Автосейв" : "Сохранено"}${lastFolderSavedAt ? ` ${formatSavedAt(lastFolderSavedAt)}` : ""}${folderName ? ` · ${folderName}` : ""}`
+            : lastCacheSavedAt
+              ? `Черновик в браузере ${formatSavedAt(lastCacheSavedAt)}`
+              : "Сохранение черновика…";
+  const saveStatusTitle = fileSaveState === "error"
+    ? fileSaveError
+    : folderBound && folderName
+      ? `Основной файл: ${folderName}\\${mainFileName || "персонаж.json"}\nАвтосейв: ${folderName}\\save\\${backupFileName || "персонаж.autosave.json"}`
+      : "При первом сохранении выберите папку на компьютере.";
   const tutorial = tutorialStep === null ? null : TUTORIAL[tutorialStep];
   const turnToPage = (next: SheetPage) => {
     if (isTurning || next === page) return;
@@ -488,11 +594,11 @@ export default function CharacterSheetApp() {
     window.setTimeout(() => {
       setPage(next);
       setTurnPhase("in");
-    }, 320);
+    }, 200);
     window.setTimeout(() => {
       setTurnPhase(null);
       setIsTurning(false);
-    }, 680);
+    }, 460);
   };
 
   if (screen === "start") return <>
@@ -503,7 +609,7 @@ export default function CharacterSheetApp() {
   return <main className="workspace-shell">
     <header className="toolbar">
       <Button variant="ghost" size="sm" onClick={() => setScreen("start")}><BookOpen /> Главное меню</Button><span className="toolbar-divider" /><span className="character-title">{character.name || "Безымянный персонаж"} <small>· {currentRaceName}</small></span>
-      <div className="toolbar-actions"><span className="save-status"><Save /> {folderBound ? (!folderPermissionReady ? "Папка привязана · подтвердите доступ" : lastFolderSavedAt ? `Файл сохранён ${new Date(lastFolderSavedAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "Папка привязана · автосейв 20 мин") : (lastCacheSavedAt ? `Черновик сохранён ${new Date(lastCacheSavedAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "Сохранение…")}</span><Button data-tutorial="save" variant="outline" size="sm" onClick={() => void saveJson()}><Download /> {folderBound ? "Сохранить JSON" : "Выбрать папку"}</Button>{folderBound && <Button variant="ghost" size="icon-sm" aria-label="Сменить папку сохранения" title="Сменить папку сохранения" onClick={() => void saveJson(true)}><FolderOpen /></Button>}<label className="toolbar-load"><FileUp /><span>Загрузить</span><input type="file" accept="application/json,.json" onChange={loadJson} /></label><Button size="icon-sm" variant="ghost" aria-label="Открыть обучение" onClick={() => { setPage("front"); setTutorialStep(0); }}><CircleHelp /></Button><Button className="feedback-button" variant="outline" size="sm" onClick={() => setFeedbackOpen(true)}><MessageSquareWarning /><span>Сообщить о проблеме/предложении</span></Button></div>
+      <div className="toolbar-actions"><span className={`save-status ${fileSaveState}`} title={saveStatusTitle} role="status" aria-live="polite">{fileSaveState === "saving" ? <LoaderCircle className="spin" /> : fileSaveState === "error" ? <AlertTriangle /> : fileSaveState === "saved" || fileSaveState === "autosaved" ? <CheckCircle2 /> : <Save />} {saveStatusText}</span><Button data-tutorial="save" variant="outline" size="sm" disabled={fileSaveState === "saving"} onClick={() => void saveJson()}>{fileSaveState === "saving" ? <LoaderCircle className="spin" /> : <Download />} {folderBound ? "Сохранить JSON" : "Выбрать папку"}</Button>{folderBound && <Button variant="ghost" size="icon-sm" disabled={fileSaveState === "saving"} aria-label="Сменить папку сохранения" title="Сменить папку сохранения" onClick={() => void saveJson(true)}><FolderOpen /></Button>}<label className="toolbar-load"><FileUp /><span>Загрузить</span><input type="file" accept="application/json,.json" onChange={loadJson} /></label><Button size="icon-sm" variant="ghost" aria-label="Открыть обучение" onClick={() => { setPage("front"); setTutorialStep(0); }}><CircleHelp /></Button><Button className="feedback-button" variant="outline" size="sm" onClick={() => setFeedbackOpen(true)}><MessageSquareWarning /><span>Сообщить о проблеме/предложении</span></Button></div>
     </header>
     <div className={`sheet-scene book-scene show-${page} ${isTurning ? "turning" : ""}`}><div className="book-cover" aria-hidden="true" /><div className={`sheet-paper ${turnPhase ? `page-turn-${turnPhase} ${turnDirection}` : ""}`}>{page === "front" ? <FrontPage character={character} onChange={setCharacter} onRaceOpen={() => setRaceOpen(true)} /> : page === "back" ? <BackPage character={character} onChange={setCharacter} /> : <NotesPage character={character} onChange={setCharacter} />}</div></div>
     <nav className="page-bookmarks" aria-label="Страницы чарника"><button className={page === "front" ? "active" : ""} onClick={() => turnToPage("front")}>Лицевая</button><button data-tutorial="flip" className={page === "back" ? "active" : ""} onClick={() => turnToPage("back")}>Оборот</button><button className={page === "notes" ? "active" : ""} onClick={() => turnToPage("notes")}>Заметки</button></nav>

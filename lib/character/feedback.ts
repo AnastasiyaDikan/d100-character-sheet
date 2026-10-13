@@ -1,4 +1,5 @@
 export const FEEDBACK_KINDS = ["Ошибка", "Предложение"] as const;
+export const FEEDBACK_FORM_ENDPOINT = "https://formsubmit.co/ajax/Nastych@mail.ru";
 
 export type FeedbackKind = typeof FEEDBACK_KINDS[number];
 
@@ -38,4 +39,42 @@ export function feedbackEmailPayload(feedback: FeedbackRequest) {
     Версия: feedback.version || "не указана",
     Страница: feedback.page || "не указана",
   };
+}
+
+export type FeedbackProviderResult = {
+  ok: boolean;
+  activationRequired: boolean;
+  message: string;
+};
+
+/** FormSubmit returns string flags ("true"/"false") on its legacy AJAX API. */
+export function feedbackProviderResult(value: unknown, responseOk: boolean): FeedbackProviderResult {
+  const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const success = input.success;
+  const modernOk = input.ok;
+  const message = typeof input.message === "string"
+    ? input.message.trim()
+    : typeof (input.error as { message?: unknown } | undefined)?.message === "string"
+      ? String((input.error as { message: string }).message).trim()
+      : "";
+  const explicitSuccess = success === true || success === "true" || modernOk === true;
+  const explicitFailure = success === false || success === "false" || modernOk === false;
+  const activationRequired = /activat/i.test(message);
+  return {
+    ok: responseOk && (explicitSuccess || !explicitFailure && !message),
+    activationRequired,
+    message,
+  };
+}
+
+export function feedbackProviderErrorText(result: FeedbackProviderResult): string {
+  if (result.activationRequired) {
+    return "Отправка почти готова: откройте письмо от FormSubmit на Nastych@mail.ru и один раз нажмите «Activate Form», затем повторите отправку.";
+  }
+  if (/web server|referer/i.test(result.message)) {
+    return "Почтовый сервис отклонил запрос сайта. Обновите страницу и повторите отправку.";
+  }
+  return result.message
+    ? `Почтовый сервис ответил: ${result.message}`
+    : "Сервис отправки сейчас недоступен. Попробуйте немного позже.";
 }

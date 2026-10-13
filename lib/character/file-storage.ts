@@ -16,7 +16,10 @@ type SaveBinding = {
   directory: FileSystemDirectoryHandle;
   mainFileName: string;
   backupFileName: string;
+  lastSavedAt?: string;
 };
+
+const bindingCache = new Map<string, SaveBinding | null>();
 
 declare global {
   interface Window {
@@ -25,9 +28,24 @@ declare global {
 }
 
 export type FolderSaveResult =
-  | { kind: "saved"; savedAt: string }
+  | { kind: "saved"; savedAt: string; directoryName: string; mainFileName: string; backupFileName: string }
   | { kind: "unsupported" }
+  | { kind: "folder-needed" }
   | { kind: "cancelled" };
+
+export type FolderAutosaveResult = {
+  savedAt: string;
+  directoryName: string;
+  backupFileName: string;
+};
+
+export type FolderBindingDetails = {
+  status: "missing" | "ready" | "permission-needed";
+  directoryName?: string;
+  mainFileName?: string;
+  backupFileName?: string;
+  lastSavedAt?: string;
+};
 
 function openFileDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -41,6 +59,7 @@ function openFileDatabase(): Promise<IDBDatabase> {
 }
 
 async function getBinding(characterId: string): Promise<SaveBinding | null> {
+  if (bindingCache.has(characterId)) return bindingCache.get(characterId) ?? null;
   const db = await openFileDatabase();
   const value = await new Promise<SaveBinding | undefined>((resolve, reject) => {
     const request = db.transaction(FILE_DB_STORE, "readonly").objectStore(FILE_DB_STORE).get(characterId);
@@ -48,7 +67,9 @@ async function getBinding(characterId: string): Promise<SaveBinding | null> {
     request.onerror = () => reject(request.error);
   });
   db.close();
-  return value ?? null;
+  const binding = value ?? null;
+  bindingCache.set(characterId, binding);
+  return binding;
 }
 
 async function storeBinding(characterId: string, binding: SaveBinding): Promise<void> {
@@ -60,6 +81,7 @@ async function storeBinding(characterId: string, binding: SaveBinding): Promise<
     transaction.onerror = () => reject(transaction.error);
   });
   db.close();
+  bindingCache.set(characterId, binding);
 }
 
 export function characterFileBase(name: string): string {
@@ -75,12 +97,23 @@ function payload(character: Character, savedAt = new Date().toISOString()): Char
   return { ...character, savedAt };
 }
 
-async function permission(handle: FileSystemDirectoryHandle, request: boolean): Promise<PermissionState> {
+async function queryWritePermission(handle: FileSystemDirectoryHandle): Promise<PermissionState> {
   const permissioned = handle as PermissionedDirectoryHandle;
   if (typeof permissioned.queryPermission !== "function") return "granted";
-  const current = await permissioned.queryPermission({ mode: "readwrite" });
-  if (current === "granted" || !request || typeof permissioned.requestPermission !== "function") return current;
-  return permissioned.requestPermission({ mode: "readwrite" });
+  return permissioned.queryPermission({ mode: "readwrite" });
+}
+
+/**
+ * Must be called directly from a click handler. Calling queryPermission first
+ * can consume Chromium's short-lived user activation before the permission
+ * prompt opens.
+ */
+async function requestWritePermission(handle: FileSystemDirectoryHandle): Promise<PermissionState> {
+  const permissioned = handle as PermissionedDirectoryHandle;
+  if (typeof permissioned.requestPermission === "function") {
+    return permissioned.requestPermission({ mode: "readwrite" });
+  }
+  return queryWritePermission(handle);
 }
 
 async function writeJson(directory: FileSystemDirectoryHandle, fileName: string, character: Character): Promise<void> {
@@ -104,10 +137,21 @@ export function supportsFolderSaving(): boolean {
 }
 
 export async function folderBindingStatus(characterId: string): Promise<"missing" | "ready" | "permission-needed"> {
-  if (!supportsFolderSaving()) return "missing";
+  return (await folderBindingDetails(characterId)).status;
+}
+
+export async function folderBindingDetails(characterId: string): Promise<FolderBindingDetails> {
+  if (!supportsFolderSaving()) return { status: "missing" };
   const binding = await getBinding(characterId);
-  if (!binding) return "missing";
-  return await permission(binding.directory, false) === "granted" ? "ready" : "permission-needed";
+  if (!binding) return { status: "missing" };
+  const status = await queryWritePermission(binding.directory) === "granted" ? "ready" : "permission-needed";
+  return {
+    status,
+    directoryName: binding.directory.name,
+    mainFileName: binding.mainFileName,
+    backupFileName: binding.backupFileName,
+    lastSavedAt: binding.lastSavedAt,
+  };
 }
 
 /**
@@ -117,31 +161,45 @@ export async function folderBindingStatus(characterId: string): Promise<"missing
 export async function saveCharacterToFolder(character: Character, chooseAnotherFolder = false): Promise<FolderSaveResult> {
   if (!supportsFolderSaving()) return { kind: "unsupported" };
 
-  let binding = chooseAnotherFolder ? null : await getBinding(character.characterId);
-  if (!binding) {
+  let binding: SaveBinding | null;
+  if (chooseAnotherFolder) {
     try {
+      // Keep this as the very first awaited browser operation so the picker is
+      // still covered by the user's click.
       const directory = await window.showDirectoryPicker!({ mode: "readwrite" });
       binding = { directory, ...characterFileNames(character.name) };
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return { kind: "cancelled" };
       throw error;
     }
+  } else {
+    binding = bindingCache.get(character.characterId) ?? await getBinding(character.characterId);
+    if (!binding) return { kind: "folder-needed" };
   }
 
-  if (await permission(binding.directory, true) !== "granted") throw new Error("directory-permission-denied");
+  if (await requestWritePermission(binding.directory) !== "granted") throw new Error("directory-permission-denied");
   const savedAt = await writeMainAndBackup(binding, character);
+  binding.lastSavedAt = savedAt;
   await storeBinding(character.characterId, binding);
-  return { kind: "saved", savedAt };
+  return {
+    kind: "saved",
+    savedAt,
+    directoryName: binding.directory.name,
+    mainFileName: binding.mainFileName,
+    backupFileName: binding.backupFileName,
+  };
 }
 
 /** Writes one fixed backup file. It never opens a permission dialog from the timer. */
-export async function saveFolderAutosave(character: Character): Promise<string | null> {
+export async function saveFolderAutosave(character: Character): Promise<FolderAutosaveResult | null> {
   if (!supportsFolderSaving()) return null;
   const binding = await getBinding(character.characterId);
-  if (!binding || await permission(binding.directory, false) !== "granted") return null;
+  if (!binding || await queryWritePermission(binding.directory) !== "granted") return null;
 
   const savedAt = new Date().toISOString();
   const backupDirectory = await binding.directory.getDirectoryHandle(BACKUP_DIRECTORY, { create: true });
   await writeJson(backupDirectory, binding.backupFileName, payload(character, savedAt));
-  return savedAt;
+  binding.lastSavedAt = savedAt;
+  await storeBinding(character.characterId, binding);
+  return { savedAt, directoryName: binding.directory.name, backupFileName: binding.backupFileName };
 }
