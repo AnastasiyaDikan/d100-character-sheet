@@ -66,7 +66,8 @@ export function applyAptitudeCharacteristics(character: Character, race: Race): 
   })) as Character["characteristics"];
   let next: Character = { ...character, characteristics, appliedAptitudes: { ...character.aptitudes } };
   if (race.naturalArmorFormula) next = { ...next, naturalArmor: calculateNaturalArmor(next, race) };
-  const woundsTotal = calculateRaceWounds(next, race);
+  const calculatedWounds = calculateRaceWounds(next, race);
+  const woundsTotal = character.woundsTotalOverride ?? calculatedWounds;
   const woundsCurrent = character.woundsCurrent === character.woundsTotal
     ? woundsTotal
     : Math.min(character.woundsCurrent, woundsTotal);
@@ -99,6 +100,7 @@ export function applyRace(character: Character, race: Race, choices: Record<stri
     freeAptitudes: race.unrestricted === true,
     corruption: corruptionFromChoice !== undefined ? corruptionFromChoice : (race.corruption ?? null),
     naturalArmor: effects.findLast((effect) => effect.naturalArmor !== undefined)?.naturalArmor ?? race.naturalArmor ?? 0,
+    woundsTotalOverride: null,
     talents: [...character.talents.filter((talent) => talent.source !== "race"), ...racialTraits],
   };
   if (race.unrestricted) {

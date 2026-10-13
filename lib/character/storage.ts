@@ -52,6 +52,10 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
   const raceChoices = raw.raceId === "kobold"
     ? { aptitude: "Навык стрельбы" }
     : (raw.raceChoices ?? {});
+  const hasWoundsOverride = Object.prototype.hasOwnProperty.call(raw, "woundsTotalOverride");
+  const storedWoundsOverride = raw.woundsTotalOverride === null || raw.woundsTotalOverride === undefined
+    ? null
+    : Number.isFinite(Number(raw.woundsTotalOverride)) ? Math.max(0, Number(raw.woundsTotalOverride)) : null;
   const rawSkills = raw.skills ?? [];
   const legacySkillIds: Partial<Record<string, string>> = {
     "navigation-ground": "navigation",
@@ -73,7 +77,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     ...raw,
     raceId,
     raceChoices,
-    dataRevision: 12,
+    dataRevision: 13,
     avatarCrop: raw.avatarCrop ?? base.avatarCrop,
     characteristics: { ...base.characteristics, ...(raw.characteristics ?? {}) },
     characteristicAdjustments: { ...base.characteristicAdjustments, ...(raw.characteristicAdjustments ?? {}) },
@@ -87,6 +91,9 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     fateMax: raw.fateMax ?? legacyFate,
     corruption: raw.corruption ?? null,
     experienceSpentOverride: raw.experienceSpentOverride ?? null,
+    woundsTotalOverride: hasWoundsOverride
+      ? storedWoundsOverride
+      : (RACES.find((item) => item.id === raceId)?.unrestricted ? raw.woundsTotal : null),
     skills: normalizedSkills,
     journal: typeof raw.journal === "string" ? raw.journal : "",
     combatSettings: {
@@ -129,7 +136,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     const advances = legacy?.advances ?? 0;
     return [id, { ...value, advances, value: value.value + advances * 5 }];
   })) as Character["characteristics"];
-  const withProgress = { ...migrated, characteristics, dataRevision: 12 as const };
+  const withProgress = { ...migrated, characteristics, dataRevision: 13 as const };
   const woundsTotal = calculateRaceWounds(withProgress, race);
   return { ...withProgress, woundsTotal, woundsCurrent: woundsTotal };
 }

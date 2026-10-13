@@ -50,7 +50,7 @@ npm install
 npm run typecheck
 npm run build:local
 git add .
-git commit -m "Версия 0.16.0: модификаторы, инициатива и карта попаданий"
+git commit -m "Версия 0.17.0: ручные раны, усталость и обратная связь"
 git push
 ```
 

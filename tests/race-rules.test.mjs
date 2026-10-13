@@ -96,3 +96,14 @@ test("custom race keeps manual values and uses unrestricted aptitudes", async ()
   assert.equal(applied.woundsTotal, 37);
   assert.equal(applied.naturalArmor, 8);
 });
+
+test("manual maximum wounds survives formula recalculation until it is disabled", async () => {
+  const { applyAptitudeCharacteristics, applyRace, calculateRaceWounds, createCharacter, RACES } = await loadRaceRules();
+  const race = RACES.find((item) => item.id === "infernal-tiefling");
+  const base = applyRace(createCharacter(), race, { archdevil: "Диспатер" });
+  const overridden = { ...base, woundsTotal: 42, woundsCurrent: 42, woundsTotalOverride: 42 };
+  const reapplied = applyAptitudeCharacteristics(overridden, race);
+  assert.equal(reapplied.woundsTotal, 42);
+  assert.equal(reapplied.woundsCurrent, 42);
+  assert.notEqual(calculateRaceWounds(reapplied, race), 42);
+});

@@ -143,6 +143,8 @@ export type Character = {
   inventory: InventoryItem[];
   woundsCurrent: number;
   woundsTotal: number;
+  /** Null keeps the racial formula; a number is a manually selected maximum. */
+  woundsTotalOverride: number | null;
   fatigueCurrent: number;
   combatSettings: CombatSettings;
   experienceEarned: number;

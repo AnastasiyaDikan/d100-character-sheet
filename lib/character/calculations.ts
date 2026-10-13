@@ -75,15 +75,17 @@ export function effectiveBonus(character: Character, id: CharacteristicId) {
 export type FatigueEffect = "none" | "halved" | "zero";
 
 /**
- * Fatigue is compared with the ordinary characteristic bonus. Supernatural
- * multipliers deliberately do not delay the penalty.
+ * Fatigue is measured in tens against the raw characteristic. This preserves
+ * the meaningful remainder: fatigue 3 does not affect 35, while fatigue 4 does.
+ * Supernatural effects deliberately do not delay the penalty.
  */
 export function fatigueEffect(character: Character, id: CharacteristicId): FatigueEffect {
   const fatigue = Math.max(0, character.fatigueCurrent ?? 0);
   if (fatigue === 0) return "none";
-  const ordinaryBonus = bonus(character, id);
-  if (ordinaryBonus <= 0 || fatigue >= ordinaryBonus * 2) return "zero";
-  if (fatigue >= ordinaryBonus) return "halved";
+  const value = characteristicValue(character, id);
+  const fatiguePressure = fatigue * 10;
+  if (value <= 0 || fatiguePressure >= value * 2) return "zero";
+  if (fatiguePressure >= value) return "halved";
   return "none";
 }
 
@@ -115,11 +117,11 @@ export function adjustedCharacteristicValue(character: Character, id: Characteri
 }
 
 /**
- * Порог чистой проверки. Временный эффект меняет значение, а бонус по правилу
- * считается от исходной характеристики, как в примере 40 - 20 + 4 = 24.
+ * Порог чистой проверки. Усталость и временный эффект меняют само значение,
+ * но бонус берётся от исходной характеристики, как в примере 35 / 2 + 3 = 20.
  */
 export function characteristicCheckValue(character: Character, id: CharacteristicId) {
-  return adjustedCharacteristicValue(character, id) + fatiguedEffectiveBonus(character, id);
+  return adjustedCharacteristicValue(character, id) + effectiveBonus(character, id);
 }
 
 /** Бонус для производных значений: КД, движения, переноски и урона. */

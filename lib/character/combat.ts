@@ -1,4 +1,4 @@
-import { adjustedCharacteristicValue, characteristicAdjustment, fatiguedEffectiveBonus } from "./calculations";
+import { adjustedCharacteristicValue, characteristicAdjustment, effectiveBonus } from "./calculations";
 import type { Character, CharacteristicId, CombatSkillRank } from "./types";
 
 export type CombatCheckKind = "none" | "melee" | "shooting" | "both" | "parry-weapon" | "parry-shield" | "dodge" | "strength" | "skill" | "counterattack";
@@ -68,7 +68,7 @@ function rankModifier(rank: CombatSkillRank) {
 
 function characteristicBase(character: Character, id: CharacteristicId) {
   const value = adjustedCharacteristicValue(character, id);
-  const bonus = fatiguedEffectiveBonus(character, id);
+  const bonus = effectiveBonus(character, id);
   const adjustment = characteristicAdjustment(character, id);
   return {
     value: value + bonus,
@@ -115,7 +115,7 @@ function attackValue(character: Character, id: "melee" | "shooting", action: Com
 export function combatActionValues(character: Character, action: CombatAction): CombatActionValue[] {
   if (action.check === "counterattack") {
     const characteristic = adjustedCharacteristicValue(character, "melee");
-    const modifier = fatiguedEffectiveBonus(character, "melee");
+    const modifier = effectiveBonus(character, "melee");
     const expert = character.combatSettings.expert ? 10 : 0;
     const shoulder = character.combatSettings.shoulderToShoulder;
     const weaponModifier = character.combatSettings.weaponModifier;

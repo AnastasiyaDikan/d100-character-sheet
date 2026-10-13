@@ -146,7 +146,7 @@ test("rolls initiative from adjusted agility and doubles it for Lightning Reflex
   assert.equal(rules.initiativeModifier(withTalent), 12);
 });
 
-test("fatigue halves and then nullifies characteristics using the ordinary bonus", async () => {
+test("fatigue compares tens against the full characteristic before halving or nullifying it", async () => {
   const rules = await loadRules();
   const race = rules.RACES.find((item) => item.id === "human");
   const base = rules.applyRace(rules.createCharacter(), race, {});
@@ -162,7 +162,7 @@ test("fatigue halves and then nullifies characteristics using the ordinary bonus
   assert.equal(rules.fatigueEffect(tired, "melee"), "halved");
   assert.equal(rules.fatiguedCharacteristicValue(tired, "melee"), 10);
   assert.equal(rules.fatiguedEffectiveBonus(tired, "melee"), 4);
-  assert.equal(rules.skillThreshold(tired, "melee-test"), 14);
+  assert.equal(rules.skillThreshold(tired, "melee-test"), 15);
   assert.equal(rules.zoneDefense(tired, "body"), 1);
   assert.deepEqual(rules.movement(tired), { free: 1, halfAction: 2, charge: 3, run: 6 });
   assert.equal(rules.fatigueThreshold(tired), 4, "the fatigue threshold itself must not fall");
@@ -171,8 +171,25 @@ test("fatigue halves and then nullifies characteristics using the ordinary bonus
   const exhausted = makeCharacter(4);
   assert.equal(rules.fatigueEffect(exhausted, "melee"), "zero");
   assert.equal(rules.fatiguedCharacteristicValue(exhausted, "melee"), 0);
-  assert.equal(rules.skillThreshold(exhausted, "melee-test"), 0);
+  assert.equal(rules.skillThreshold(exhausted, "melee-test"), 5, "a zeroed value still keeps its original supernatural modifier");
   assert.deepEqual(rules.movement(exhausted), { free: 0.5, halfAction: 1, charge: 2, run: 3 });
+
+  const remainderMatters = {
+    ...makeCharacter(3),
+    characteristics: Object.fromEntries(Object.entries(base.characteristics).map(([id, item]) => [id, { ...item, value: 35 }])),
+  };
+  assert.equal(rules.fatigueEffect(remainderMatters, "perception"), "none", "fatigue 3 must not halve a value of 35");
+  assert.equal(rules.fatigueEffect({ ...remainderMatters, fatigueCurrent: 4 }, "perception"), "halved");
+  assert.equal(rules.fatigueEffect({ ...remainderMatters, fatigueCurrent: 7 }, "perception"), "zero");
+
+  const originalModifier = {
+    ...remainderMatters,
+    fatigueCurrent: 4,
+    talents: [],
+  };
+  assert.equal(rules.fatiguedCharacteristicValue(originalModifier, "perception"), 17);
+  assert.equal(rules.characteristicCheckValue(originalModifier, "perception"), 20, "17 after fatigue still uses the original +3 bonus");
+  assert.equal(rules.adjustedEffectiveBonus(originalModifier, "perception"), 1, "derived values still react to the reduced characteristic");
 });
 
 test("uses the requested experience price table and permits a manual spent total", async () => {
@@ -206,6 +223,13 @@ test("calculates combat actions from the current characteristics and saved modif
   assert.equal(rules.combatActionValues(withMelee, allOut)[0].value, 107);
   assert.equal(rules.combatActionValues(base, knockDown)[0].value, 32);
   assert.equal(rules.combatActionValues({ ...withMelee, combatSettings: { ...withMelee.combatSettings, aimBonus: 20 } }, standardAttack)[0].value, 107);
+
+  const tired = {
+    ...base,
+    fatigueCurrent: 4,
+    characteristics: { ...base.characteristics, melee: { ...base.characteristics.melee, value: 35 } },
+  };
+  assert.equal(rules.combatActionValues(tired, standardAttack)[0].value, 30, "17 after fatigue + original modifier 3 + standard attack 10");
 });
 
 test("separates weapon and shield parry modifiers", async () => {
@@ -316,6 +340,11 @@ test("adds combat defaults to old saves and preserves valid combat choices", asy
   assert.deepEqual(rules.normalizeCharacter(legacy).combatSettings, base.combatSettings);
   const configured = { ...base, combatSettings: { ...base.combatSettings, expert: true, parryRank: 5, shieldEnabled: true, shieldBonus: 12 } };
   assert.deepEqual(rules.normalizeCharacter(configured).combatSettings, configured.combatSettings);
+  assert.equal(rules.normalizeCharacter(configured).woundsTotalOverride, null);
+  const legacyCustom = { ...base, raceId: "custom", woundsTotal: 37 };
+  delete legacyCustom.woundsTotalOverride;
+  assert.equal(rules.normalizeCharacter(legacyCustom).woundsTotalOverride, 37);
+  assert.equal(rules.normalizeCharacter({ ...base, raceId: "custom", woundsTotalOverride: null }).woundsTotalOverride, null);
   assert.equal(rules.normalizeCharacter({ ...configured, journal: "Запись в журнале" }).journal, "Запись в журнале");
   const legacyWeapon = { id: "old", name: "Старый клинок", weaponClass: "", range: "", rate: "", damage: "d8", penetration: "", magazine: "", reload: "", properties: "", collapsed: false };
   assert.deepEqual(rules.normalizeCharacter({ ...configured, weapons: [legacyWeapon] }).weapons[0], { ...legacyWeapon, damageOneHand: "d8", damageTwoHands: "", extraDamage: "", active: false, damageCharacteristic: "strength", damageMode: 0 });
