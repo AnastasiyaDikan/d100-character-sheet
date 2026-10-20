@@ -10,7 +10,7 @@ async function loadFeedback() {
 
 test("accepts only complete feedback and creates a sortable subject", async () => {
   const rules = await loadFeedback();
-  const feedback = rules.parseFeedbackRequest({ sender: "  Лиза  ", kind: "Ошибка", description: "  Кнопка не открывается  ", version: "0.17.1" });
+  const feedback = rules.parseFeedbackRequest({ sender: "  Лиза  ", kind: "Ошибка", description: "  Кнопка не открывается  ", version: "0.18.0" });
   assert.equal(feedback.sender, "Лиза");
   assert.equal(feedback.description, "Кнопка не открывается");
   assert.equal(rules.feedbackEmailPayload(feedback)._subject, "[Чарник D100][Ошибка] Лиза");

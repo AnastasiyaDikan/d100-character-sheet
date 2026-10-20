@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Dices, Eye, EyeOff, LoaderCircle, MessageCircle, Send, Sparkles, X, Zap } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Dices, Eye, EyeOff, LoaderCircle, MessageCircle, Minus, Plus, Send, Sparkles, X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -12,6 +12,7 @@ import { hasLightningReflexes, initiativeModifier } from "@/lib/character/initia
 import type { Character } from "@/lib/character/types";
 
 type DeliveryState = "idle" | "sending" | "sent" | "error";
+const MAX_DICE_COUNT = 20;
 
 function DiscordConnectionDialog({ open, settings, character, onOpenChange, onSave }: {
   open: boolean;
@@ -102,7 +103,8 @@ export default function DiceRoller({ character }: { character: Character }) {
   const [discordOpen, setDiscordOpen] = useState(false);
   const [settings, setSettings] = useState<DiscordSettings>(EMPTY_DISCORD_SETTINGS);
   const [delivery, setDelivery] = useState<DeliveryState>("idle");
-  const [result, setResult] = useState<{ sides: number; value: number; serial: number } | null>(null);
+  const [diceCount, setDiceCount] = useState(1);
+  const [result, setResult] = useState<{ sides: number; rolls: number[]; total: number; serial: number } | null>(null);
   const [initiative, setInitiative] = useState<{ die: number; modifier: number; total: number; doubled: boolean; serial: number; delivery: DeliveryState } | null>(null);
   const latestRoll = useRef(0);
 
@@ -118,10 +120,11 @@ export default function DiceRoller({ character }: { character: Character }) {
   };
 
   const throwDie = (sides: number) => {
-    const value = rollDie(sides);
+    const rolls = Array.from({ length: diceCount }, () => rollDie(sides));
+    const total = rolls.reduce((sum, value) => sum + value, 0);
     const serial = Date.now() + Math.random();
     latestRoll.current = serial;
-    setResult({ sides, value, serial });
+    setResult({ sides, rolls, total, serial });
     setDelivery("idle");
     if (!discordIsConnected(settings)) return;
     setDelivery("sending");
@@ -131,7 +134,9 @@ export default function DiceRoller({ character }: { character: Character }) {
       avatar,
       kind: "simple",
       sides,
-      result: value,
+      result: total,
+      diceCount,
+      rolls,
       embedColor: settings.color,
     })).then(() => {
       if (latestRoll.current === serial) setDelivery("sent");
@@ -169,9 +174,17 @@ export default function DiceRoller({ character }: { character: Character }) {
     <button className="initiative-launch" onClick={throwInitiative} aria-label="Бросить инициативу" title="Инициатива: d10 + модификатор Ловкости"><Zap /></button>
     {initiative && <output key={initiative.serial} className="initiative-result" aria-live="polite"><small>Инициатива</small><strong>{initiative.total}</strong><span>d10: {initiative.die} + {initiative.modifier}{initiative.doubled ? " × рефлексы" : ""}</span>{initiative.delivery !== "idle" && <em className={initiative.delivery}>{initiative.delivery === "sending" ? "Discord…" : initiative.delivery === "sent" ? "Отправлено" : "Не отправлено"}</em>}</output>}
     {!open ? <button className={`dice-launch ${connected ? "discord-connected" : ""}`} onClick={() => setOpen(true)} aria-label="Открыть бросок кубиков" title="Бросить кубик"><Dices /></button> : <div className="dice-table" role="group" aria-label="Выбор игрового кубика">
-      {result && <output key={result.serial} className="dice-result" aria-live="polite"><span><small>d{result.sides}</small><strong>{result.value}</strong></span>{delivery !== "idle" && <em className={`dice-delivery ${delivery}`}>{delivery === "sending" && <><LoaderCircle className="spin" /> Discord…</>}{delivery === "sent" && <><CheckCircle2 /> Отправлено</>}{delivery === "error" && <><AlertTriangle /> Не отправлено</>}</em>}</output>}
-      {DICE_SIDES.map((sides) => <button key={sides} className={`polyhedral-die die-d${sides}`} onClick={() => throwDie(sides)} aria-label={`Бросить d${sides}`} title={`Бросить d${sides}`}><DieIcon sides={sides} /></button>)}
-      <div className="dice-center-controls"><button className="dice-close" onClick={() => setOpen(false)} aria-label="Закрыть кубики"><X /></button><button className={`dice-discord-open ${connected ? "connected" : ""}`} onClick={() => setDiscordOpen(true)} aria-label="Настроить Discord" title="Подключить броски к Discord"><MessageCircle /><span>Discord</span></button></div>
+      {result && <output key={result.serial} className="dice-result" aria-live="polite"><span><small>{result.rolls.length > 1 ? `${result.rolls.length}d${result.sides}` : `d${result.sides}`}</small><strong>{result.total}</strong></span>{result.rolls.length > 1 && <span className="dice-result-rolls">{result.rolls.join(" + ")}</span>}{delivery !== "idle" && <em className={`dice-delivery ${delivery}`}>{delivery === "sending" && <><LoaderCircle className="spin" /> Discord…</>}{delivery === "sent" && <><CheckCircle2 /> Отправлено</>}{delivery === "error" && <><AlertTriangle /> Не отправлено</>}</em>}</output>}
+      {DICE_SIDES.map((sides) => <button key={sides} className={`polyhedral-die die-d${sides}`} onClick={() => throwDie(sides)} aria-label={`Бросить ${diceCount > 1 ? `${diceCount} кубов d${sides}` : `d${sides}`}`} title={`Бросить ${diceCount > 1 ? `${diceCount}d${sides}` : `d${sides}`}`}><DieIcon sides={sides} /></button>)}
+      <div className="dice-center-controls">
+        <div className="dice-count-picker" role="group" aria-label="Количество кубов">
+          <button type="button" disabled={diceCount <= 1} onClick={() => setDiceCount((count) => Math.max(1, count - 1))} aria-label="Уменьшить количество кубов"><Minus /></button>
+          <output title="Количество кубов">{diceCount}</output>
+          <button type="button" disabled={diceCount >= MAX_DICE_COUNT} onClick={() => setDiceCount((count) => Math.min(MAX_DICE_COUNT, count + 1))} aria-label="Увеличить количество кубов"><Plus /></button>
+        </div>
+        <button className="dice-close" onClick={() => setOpen(false)} aria-label="Закрыть кубики"><X /></button>
+        <button className={`dice-discord-open ${connected ? "connected" : ""}`} onClick={() => setDiscordOpen(true)} aria-label="Настроить Discord" title="Подключить броски к Discord"><MessageCircle /><span>Discord</span></button>
+      </div>
     </div>}
     <DiscordConnectionDialog open={discordOpen} settings={settings} character={character} onOpenChange={setDiscordOpen} onSave={saveSettings} />
   </div>;

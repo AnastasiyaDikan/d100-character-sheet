@@ -50,7 +50,7 @@ npm install
 npm run typecheck
 npm run build:local
 git add .
-git commit -m "Версия 0.17.1: исправлены сохранение, обратная связь и перелистывание"
+git commit -m "Версия 0.18.0: исправлены критический урон и броски нескольких кубов"
 git push
 ```
 

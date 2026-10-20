@@ -11,6 +11,8 @@ export type DiscordRollRequest = {
   kind?: "simple" | "skill" | "combat" | "characteristic" | "damage" | "initiative" | "hit-location";
   sides?: number;
   result?: number;
+  diceCount?: number;
+  rolls?: number[];
   skillName?: string;
   characteristicName?: string;
   threshold?: number;
@@ -71,10 +73,22 @@ function validHitLocation(hitLocation: HitLocationResult | undefined, result?: n
 export function validDiscordRoll(request: DiscordRollRequest) {
   if (request.test === true) return true;
   if (request.kind === "damage") return validDamage(request.damage);
-  const validDie = DICE_SIDES.includes(request.sides as typeof DICE_SIDES[number])
+  const validSides = DICE_SIDES.includes(request.sides as typeof DICE_SIDES[number]);
+  const validDie = validSides
     && Number.isInteger(request.result)
     && Number(request.result) >= 1
     && Number(request.result) <= Number(request.sides);
+  if (request.kind === "simple" && (request.diceCount !== undefined || request.rolls !== undefined)) {
+    return validSides
+      && Number.isInteger(request.diceCount)
+      && Number(request.diceCount) >= 1
+      && Number(request.diceCount) <= 20
+      && Array.isArray(request.rolls)
+      && request.rolls.length === request.diceCount
+      && request.rolls.every((roll) => Number.isInteger(roll) && roll >= 1 && roll <= Number(request.sides))
+      && Number.isInteger(request.result)
+      && request.rolls.reduce((sum, roll) => sum + roll, 0) === request.result;
+  }
   if (!validDie) return false;
   if (request.kind === "initiative") return request.sides === 10
     && Number.isFinite(request.initiativeModifier)
@@ -156,12 +170,16 @@ export function discordMessagePayload(request: DiscordRollRequest, hasAvatar: bo
             color: customColor ?? (outcome.passed ? 0x477a45 : 0x8f3028),
           };
         })()
-    : {
+    : (() => {
+        const rolls = request.kind === "simple" && Array.isArray(request.rolls) ? request.rolls : [];
+        const multiple = rolls.length > 1;
+        return {
         author: { name: characterName },
-        title: `Бросок d${request.sides}`,
-        description: `# ${request.result}`,
+        title: `Бросок ${multiple ? `${rolls.length}d${request.sides}` : `d${request.sides}`}`,
+        description: `${multiple ? `${rolls.join(" + ")}\n` : ""}# ${request.result}`,
         color: customColor ?? 0x6d281f,
-      };
+        };
+      })();
 
   if (hasAvatar) Object.assign(embed, { thumbnail: { url: "attachment://character-avatar.png" } });
 

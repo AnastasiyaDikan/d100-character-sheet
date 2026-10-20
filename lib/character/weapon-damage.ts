@@ -146,13 +146,19 @@ export function rollWeaponDamage(
   const extra = extraExpression ? parseDamageExpression(extraExpression) : { dice: [], fixedModifier: 0 };
   if (!extra) return null;
 
-  const criticalDice = Math.floor(outcome.successes / 5) + (outcome.critical === "success" ? 1 : 0);
+  const criticalCount = Math.floor(outcome.successes / 5) + (outcome.critical === "success" ? 1 : 0);
+  const basePool = expandDice(parsed);
+  // Каждый крит повторяет весь исходный пул основного урона оружия.
+  // Например, 3к8 и два крита дают 3к8 + 3к8 + 3к8 = 9к8.
+  // Дополнительный урон оружия намеренно в критический пул не входит.
+  const criticalPool = Array.from({ length: criticalCount }, () => basePool).flat();
+  const criticalDice = criticalPool.length;
   const primarySides = parsed.dice[0].sides;
   const mainKinds: DamageDieRoll["kind"][] = [
-    ...expandDice(parsed).map(() => "main" as const),
-    ...Array.from({ length: criticalDice }, () => "critical" as const),
+    ...basePool.map(() => "main" as const),
+    ...criticalPool.map(() => "critical" as const),
   ];
-  const mainSides = [...expandDice(parsed), ...Array.from({ length: criticalDice }, () => primarySides)];
+  const mainSides = [...basePool, ...criticalPool];
   const rollDetails: DamageDieRoll[] = mainSides.map((sides, index) => ({ kind: mainKinds[index], sides, value: roller(sides) }));
 
   const explosionRank = weaponExplosionRank(character, weapon);

@@ -320,6 +320,24 @@ test("rolls mixed extra damage without critical dice and supports both explosion
   assert.deepEqual(mastered.rollDetails.map((roll) => [roll.kind, roll.value]), [["main", 10], ["explosion", 10], ["explosion", 7], ["extra", 4], ["extra", 3], ["extra", 2]]);
 });
 
+test("repeats the entire base weapon pool for every critical", async () => {
+  const rules = await loadRules();
+  const character = rules.createCharacter();
+  const weapon = {
+    id: "axe", name: "Тяжёлый топор", weaponClass: "Рубящее", range: "", rate: "", damage: "",
+    damageOneHand: "3к8", damageTwoHands: "", extraDamage: "к4",
+    penetration: "", magazine: "", reload: "", properties: "", collapsed: false, active: true, damageCharacteristic: "strength", damageMode: 0,
+  };
+  const outcome = { roll: 10, threshold: 150, passed: true, critical: null, successes: 14, failures: 0, text: "" };
+  const queue = [1, 2, 3, 4, 5, 6, 7, 8, 1, 4];
+  const damage = rules.rollWeaponDamage(character, weapon, outcome, () => queue.shift());
+
+  assert.equal(damage.criticalDice, 6);
+  assert.equal(damage.diceCount, 10);
+  assert.deepEqual(damage.rollDetails.map((roll) => roll.sides), [8, 8, 8, 8, 8, 8, 8, 8, 8, 4]);
+  assert.deepEqual(damage.rollDetails.map((roll) => roll.kind), ["main", "main", "main", "critical", "critical", "critical", "critical", "critical", "critical", "extra"]);
+});
+
 test("copies parry and dodge ranks from the sheet but allows combat overrides", async () => {
   const rules = await loadRules();
   const base = rules.createCharacter();
@@ -441,6 +459,13 @@ test("accepts only Discord webhook URLs and builds safe roll embeds", async () =
   assert.equal("fields" in payload.embeds[0], false);
   assert.equal(payload.embeds[0].thumbnail.url, "attachment://character-avatar.png");
   assert.deepEqual(payload.allowed_mentions, { parse: [] });
+
+  const multipleDice = { characterName: "Лиза Ашвинг", kind: "simple", sides: 8, diceCount: 3, rolls: [2, 8, 4], result: 14 };
+  assert.equal(rules.validDiscordRoll(multipleDice), true);
+  assert.equal(rules.validDiscordRoll({ ...multipleDice, result: 13 }), false);
+  const multipleDicePayload = rules.discordMessagePayload(multipleDice, true);
+  assert.equal(multipleDicePayload.embeds[0].title, "Бросок 3d8");
+  assert.equal(multipleDicePayload.embeds[0].description, "2 + 8 + 4\n# 14");
 
   const skillPayload = rules.discordMessagePayload({ characterName: "Лиза Ашвинг", kind: "skill", sides: 100, result: 13, skillName: "Атлетика", threshold: 89 }, true);
   assert.equal(skillPayload.embeds[0].title, "Бросок навыка «Атлетика» d100");

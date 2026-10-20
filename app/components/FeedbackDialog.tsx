@@ -49,7 +49,7 @@ export default function FeedbackDialog({ open, defaultSender, onOpenChange }: {
         kind,
         description,
         website,
-        version: "0.17.1",
+        version: "0.18.0",
         page: window.location.href,
       };
       const response = await fetch(FEEDBACK_FORM_ENDPOINT, {
