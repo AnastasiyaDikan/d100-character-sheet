@@ -38,8 +38,8 @@ export const COMBAT_ACTIONS: CombatAction[] = [
   { id: "called-shot", action: "Меткая атака", type: "Полное", subtype: "Атака любая, Концентрация", description: "Атаковать определённую зону цели с -20 НР или НС.", check: "both", usesWeapon: true, dealsDamage: true },
   { id: "overwatch", action: "Наблюдение", type: "Полное", subtype: "Атака, Концентрация, Стрельба", description: "Стреляет в цели, зашедшие в зону поражения. Если персонаж во время Наблюдения исполнит любое действие или реакцию, например Избегание, его Наблюдение немедленно прекращается.", check: "shooting", usesWeapon: true, dealsDamage: true },
   { id: "charge", action: "Натиск", type: "Полное", subtype: "Атака, Рукопашная, Движение", description: "Должен продвинуться хотя бы на 4 метра, +20 к НР.", check: "melee", usesWeapon: true, dealsDamage: true },
-  { id: "rapid-attack", action: "Быстрая атака", type: "Полу", subtype: "Атака, Рукопашная", description: "Потратив Полудействие, персонаж проходит проверку Навыка Рукопашки без дополнительных бонусов и штрафов. За каждые 2 успеха он получает +1 атаку. Число дополнительных атак не может превышать модификатор НР. Серия состоит из одной базовой и всех дополнительных атак. Для защиты проводится одна проверка защиты с количеством успехов не меньше общего числа атак.", check: "rapid-attack", usesWeapon: true, dealsDamage: true, requiredTalent: "Быстрая атака" },
-  { id: "lightning-attack", action: "Молниеносная атака", type: "Полу", subtype: "Атака, Рукопашная", description: "Потратив Полудействие, персонаж проходит проверку Навыка Рукопашки со штрафом -10. За каждый успех он получает +1 атаку. Число дополнительных атак не может превышать модификатор НР. Серия состоит из одной базовой и всех дополнительных атак. Для защиты проводится одна проверка защиты с количеством успехов не меньше общего числа атак.", check: "lightning-attack", usesWeapon: true, dealsDamage: true, requiredTalent: "Молниеносная атака" },
+  { id: "rapid-attack", action: "Быстрая атака", type: "Полу", subtype: "Атака, Рукопашная", description: "Потратив Полудействие, персонаж проходит проверку Навыка Рукопашки. Проверка учитывает Эксперта, Плечом к Плечу, Прицеливание и модификатор оружия. За каждые 2 успеха он получает +1 атаку. Число дополнительных атак не может превышать модификатор НР. Серия состоит из одной базовой и всех дополнительных атак. Для защиты проводится одна проверка защиты с количеством успехов не меньше общего числа атак.", check: "rapid-attack", usesWeapon: true, dealsDamage: true, requiredTalent: "Быстрая атака" },
+  { id: "lightning-attack", action: "Молниеносная атака", type: "Полу", subtype: "Атака, Рукопашная", description: "Потратив Полудействие, персонаж проходит проверку Навыка Рукопашки со штрафом -10. Проверка учитывает Эксперта, Плечом к Плечу, Прицеливание и модификатор оружия. За каждый успех он получает +1 атаку. Число дополнительных атак не может превышать модификатор НР. Серия состоит из одной базовой и всех дополнительных атак. Для защиты проводится одна проверка защиты с количеством успехов не меньше общего числа атак.", check: "lightning-attack", usesWeapon: true, dealsDamage: true, requiredTalent: "Молниеносная атака" },
   { id: "stun", action: "Оглушение", type: "Полное", subtype: "Атака, Рукопашная", description: "Попытка Оглушить оппонента. Проверка НР с -20; при успехе бросается 1к10 + БС атакующего. Если значение больше либо равно БВын и значению брони на голове атакуемого, цель оглушается на количество раундов, равное разнице между двумя значениями.", check: "melee", usesWeapon: true, dealsDamage: true },
   { id: "cautious-attack", action: "Осторожная атака", type: "Полное", subtype: "Атака любая, Концентрация", description: "-10 к НС или НР, +10 ко всем проверкам Избегания до начала следующего раунда.", check: "both", usesWeapon: true, dealsDamage: true },
   { id: "knock-down", action: "Сбить с ног", type: "Полу", subtype: "Атака, Рукопашная", description: "Используется как часть Натиска или сразу после полудействия движения. Встречная проверка Силы с +10; при успехе цель сбита с ног. Две и более степени успеха наносят цели урон 1к5-3 + БС и один уровень Усталости; при провале с разницей в две и более степени успеха атакующий сбит с ног.", check: "strength" },
@@ -143,12 +143,25 @@ function attackValue(character: Character, id: "melee" | "shooting", action: Com
 export function combatActionValues(character: Character, action: CombatAction): CombatActionValue[] {
   if (action.check === "rapid-attack" || action.check === "lightning-attack") {
     const melee = characteristicCheckValue(character, "melee");
+    const settings = character.combatSettings;
     const penalty = action.check === "lightning-attack" ? -10 : 0;
+    const expert = settings.expert ? 10 : 0;
+    const shoulder = settings.shoulderToShoulder;
+    const aimed = settings.aimBonus;
+    const weaponModifier = settings.weaponModifier;
     const maximumExtraAttacks = Math.max(0, effectiveBonus(character, "melee"));
     return [{
       label: "НР",
-      value: Math.max(0, melee + penalty),
-      explanation: [`НР вместе с исходным модификатором ${melee}`, penalty ? "Молниеносная атака -10" : "без дополнительных бонусов и штрафов", `не более ${maximumExtraAttacks} дополнительных атак`].join("; "),
+      value: Math.max(0, melee + penalty + expert + shoulder + aimed + weaponModifier),
+      explanation: [
+        `НР вместе с исходным модификатором ${melee}`,
+        expert ? "Эксперт +10" : "",
+        shoulder ? `Плечом к Плечу +${shoulder}` : "",
+        aimed ? `Прицеливание +${aimed}` : "",
+        weaponModifier ? `Оружие ${weaponModifier >= 0 ? "+" : ""}${weaponModifier}` : "",
+        penalty ? "Молниеносная атака -10" : "",
+        `не более ${maximumExtraAttacks} дополнительных атак`,
+      ].filter(Boolean).join("; "),
     }];
   }
   if (action.check === "counterattack") {

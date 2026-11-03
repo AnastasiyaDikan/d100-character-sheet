@@ -26,7 +26,7 @@ export default function FeedbackDialog({ open, defaultSender, onOpenChange }: {
     kind,
     description: description.trim(),
     website,
-    version: "0.19.0",
+    version: "0.19.1",
     page: typeof window === "undefined" ? "" : window.location.href,
   };
 

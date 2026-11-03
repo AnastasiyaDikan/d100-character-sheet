@@ -32,7 +32,7 @@ test("proxies feedback through the same-origin API instead of browser-side FormS
         sender: "Марк",
         kind: "Предложение",
         description: "Добавить удобное переключение оружия в боевых действиях.",
-        version: "0.19.0",
+        version: "0.19.1",
         page: "https://d100-character-sheet.nastych.workers.dev/",
       }),
     }));

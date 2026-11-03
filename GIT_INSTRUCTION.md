@@ -50,7 +50,7 @@ npm install
 npm run typecheck
 npm run build:local
 git add .
-git commit -m "Версия 0.19.0: серийные атаки и исправление обратной связи"
+git commit -m "Версия 0.19.1: бонусы серийных атак"
 git push
 ```
 

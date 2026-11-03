@@ -254,10 +254,17 @@ test("shows talent-only multiattacks and calculates every strike in the series",
   assert.equal(rules.combatActionAvailable(base, rapid), false);
   assert.equal(rules.combatActionAvailable(character, rapid), true);
   assert.equal(rules.combatActionAvailable(character, lightning), true);
-  assert.equal(rules.combatActionValues(character, rapid)[0].value, 77, "no combat toggles are added to raw melee");
-  assert.equal(rules.combatActionValues(character, lightning)[0].value, 67, "lightning attack applies only its -10");
+  assert.equal(rules.combatActionValues(character, rapid)[0].value, 137, "rapid attack uses expert, shoulder, aim and weapon modifier");
+  assert.equal(rules.combatActionValues(character, lightning)[0].value, 127, "lightning attack uses the same bonuses and applies its -10");
 
-  const fourSuccesses = { roll: 37, threshold: 77, passed: true, critical: null, successes: 4, failures: 0, text: "" };
+  const explanation = rules.combatActionValues(character, rapid)[0].explanation;
+  assert.match(explanation, /Эксперт \+10/);
+  assert.match(explanation, /Плечом к Плечу \+20/);
+  assert.match(explanation, /Прицеливание \+20/);
+  assert.match(explanation, /Оружие \+10/);
+  assert.doesNotMatch(explanation, /Неистовство/);
+
+  const fourSuccesses = { roll: 97, threshold: 137, passed: true, critical: null, successes: 4, failures: 0, text: "" };
   assert.equal(rules.combatAttackCount(character, rapid, fourSuccesses), 3, "base attack plus one per two successes");
   assert.equal(rules.combatAttackCount(character, lightning, fourSuccesses), 5, "base attack plus one per success");
   assert.equal(rules.combatAttackCount(character, lightning, { ...fourSuccesses, successes: 30 }), 8, "extra attacks are capped by the melee modifier");
