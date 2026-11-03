@@ -1,4 +1,5 @@
-import { FEEDBACK_FORM_ENDPOINT, feedbackEmailPayload, feedbackProviderErrorText, feedbackProviderResult, parseFeedbackRequest } from "@/lib/character/feedback";
+import { parseDiscordWebhookUrl } from "@/lib/character/discord";
+import { feedbackDiscordPayload, parseFeedbackRequest } from "@/lib/character/feedback";
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -11,33 +12,34 @@ export async function POST(request: Request) {
   const feedback = parseFeedbackRequest(body);
   if (!feedback) return Response.json({ error: "Проверьте имя, тип и описание сообщения." }, { status: 400 });
 
-  // A filled hidden field is treated as a bot submission without exposing that decision.
+  // Заполненное скрытое поле считается отправкой бота. Для него возвращается
+  // обычный успешный ответ, но сообщение в Discord не уходит.
   if (feedback.website) return Response.json({ ok: true });
 
+  const webhook = parseDiscordWebhookUrl(process.env.FEEDBACK_DISCORD_WEBHOOK_URL ?? "");
+  if (!webhook) {
+    return Response.json({ error: "Канал обратной связи ещё не подключён. Сообщите владельцу чарника." }, { status: 503 });
+  }
+
   try {
-    let origin = "https://d100-character-sheet.nastych.workers.dev";
-    try {
-      if (feedback.page) origin = new URL(feedback.page).origin;
-    } catch {
-      // Keep the production origin when an old or hand-edited save supplies an invalid page.
-    }
-    const response = await fetch(FEEDBACK_FORM_ENDPOINT, {
+    const response = await fetch(webhook, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        Origin: origin,
-        Referer: `${origin}/`,
-      },
-      body: JSON.stringify(feedbackEmailPayload(feedback)),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(feedbackDiscordPayload(feedback)),
       signal: AbortSignal.timeout(15_000),
     });
-    const provider = feedbackProviderResult(await response.json().catch(() => null), response.ok);
-    if (!provider.ok) {
-      return Response.json({ error: feedbackProviderErrorText(provider), activationRequired: provider.activationRequired }, { status: 502 });
+
+    if (!response.ok) {
+      const configurationError = [401, 403, 404].includes(response.status);
+      return Response.json({
+        error: configurationError
+          ? "Discord отклонил канал обратной связи. Вебхук нужно обновить."
+          : "Discord временно не принял сообщение. Попробуйте немного позже.",
+      }, { status: 502 });
     }
+
     return Response.json({ ok: true });
   } catch {
-    return Response.json({ error: "Не удалось отправить сообщение. Попробуйте немного позже." }, { status: 502 });
+    return Response.json({ error: "Не удалось связаться с Discord. Попробуйте немного позже." }, { status: 502 });
   }
 }

@@ -8,32 +8,23 @@ async function loadFeedback() {
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
 }
 
-test("accepts only complete feedback and creates a sortable subject", async () => {
+test("accepts only complete feedback and creates a safe Discord card", async () => {
   const rules = await loadFeedback();
-  const feedback = rules.parseFeedbackRequest({ sender: "  Лиза  ", kind: "Ошибка", description: "  Кнопка не открывается  ", version: "0.18.0" });
+  const feedback = rules.parseFeedbackRequest({ sender: "  Лиза  ", kind: "Ошибка", description: "  Кнопка не открывается  ", version: "0.19.3", page: "https://example.test/" });
   assert.equal(feedback.sender, "Лиза");
   assert.equal(feedback.description, "Кнопка не открывается");
-  assert.equal(rules.feedbackEmailPayload(feedback)._subject, "[Чарник D100][Ошибка] Лиза");
-  const mailto = rules.feedbackMailtoUrl(feedback);
-  assert.match(mailto, /^mailto:Nastych@mail\.ru\?/);
-  assert.match(decodeURIComponent(mailto), /Кнопка не открывается/);
-  assert.equal(rules.FEEDBACK_NATIVE_FORM_ENDPOINT, "https://formsubmit.co/Nastych@mail.ru");
+  const payload = rules.feedbackDiscordPayload(feedback);
+  assert.equal(payload.embeds[0].title, "Ошибка в чарнике");
+  assert.equal(payload.embeds[0].description, "Кнопка не открывается");
+  assert.deepEqual(payload.allowed_mentions, { parse: [] });
+  assert.equal(payload.embeds[0].fields[0].value, "Лиза");
+  assert.equal(payload.embeds[0].fields[1].value, "0.19.3");
   assert.equal(rules.parseFeedbackRequest({ sender: "Я", kind: "Другое", description: "Слишком коротко" }), null);
 });
 
-test("reads FormSubmit string flags and explains one-time activation", async () => {
+test("uses a different card title and color for suggestions", async () => {
   const rules = await loadFeedback();
-  assert.deepEqual(rules.feedbackProviderResult({ success: "true", message: "Thanks" }, true), {
-    ok: true,
-    activationRequired: false,
-    message: "Thanks",
-  });
-  const activation = rules.feedbackProviderResult({
-    success: "false",
-    message: "This form needs Activation. We've sent you an email containing an Activate Form link.",
-  }, true);
-  assert.equal(activation.ok, false);
-  assert.equal(activation.activationRequired, true);
-  assert.match(rules.feedbackProviderErrorText(activation), /Nastych@mail\.ru/);
-  assert.match(rules.feedbackProviderErrorText(activation), /Activate Form/);
+  const payload = rules.feedbackDiscordPayload({ sender: "Марк", kind: "Предложение", description: "Добавить переключение оружия." });
+  assert.equal(payload.embeds[0].title, "Предложение для чарника");
+  assert.equal(payload.embeds[0].color, 0x3f6f8f);
 });

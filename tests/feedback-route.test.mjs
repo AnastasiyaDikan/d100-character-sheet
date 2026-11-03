@@ -16,35 +16,64 @@ async function loadRoute() {
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
 }
 
-test("proxies feedback through the same-origin API instead of browser-side FormSubmit", async () => {
+function feedbackRequest() {
+  return new Request("https://d100-character-sheet.nastych.workers.dev/api/feedback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sender: "Марк",
+      kind: "Предложение",
+      description: "Добавить удобное переключение оружия в боевых действиях.",
+      version: "0.19.3",
+      page: "https://d100-character-sheet.nastych.workers.dev/",
+    }),
+  });
+}
+
+test("delivers feedback to the secret Discord webhook", async () => {
   const { POST } = await loadRoute();
   const originalFetch = globalThis.fetch;
-  let providerCall;
+  const originalWebhook = process.env.FEEDBACK_DISCORD_WEBHOOK_URL;
+  let discordCall;
+  process.env.FEEDBACK_DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/123456789/secret_token";
   globalThis.fetch = async (url, options) => {
-    providerCall = { url: String(url), options };
-    return Response.json({ success: "true", message: "Thanks" });
+    discordCall = { url: String(url), options };
+    return new Response(null, { status: 204 });
   };
   try {
-    const response = await POST(new Request("https://d100-character-sheet.nastych.workers.dev/api/feedback", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sender: "Марк",
-        kind: "Предложение",
-        description: "Добавить удобное переключение оружия в боевых действиях.",
-        version: "0.19.2",
-        page: "https://d100-character-sheet.nastych.workers.dev/",
-      }),
-    }));
+    const response = await POST(feedbackRequest());
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { ok: true });
-    assert.equal(providerCall.url, "https://formsubmit.co/ajax/Nastych@mail.ru");
-    assert.equal(providerCall.options.headers.Origin, "https://d100-character-sheet.nastych.workers.dev");
-    const payload = JSON.parse(providerCall.options.body);
-    assert.equal(payload["Имя отправителя"], "Марк");
-    assert.equal(payload["Тип сообщения"], "Предложение");
+    assert.equal(discordCall.url, "https://discord.com/api/webhooks/123456789/secret_token?wait=true");
+    const payload = JSON.parse(discordCall.options.body);
+    assert.equal(payload.embeds[0].title, "Предложение для чарника");
+    assert.equal(payload.embeds[0].fields[0].value, "Марк");
+    assert.deepEqual(payload.allowed_mentions, { parse: [] });
   } finally {
     globalThis.fetch = originalFetch;
+    if (originalWebhook === undefined) delete process.env.FEEDBACK_DISCORD_WEBHOOK_URL;
+    else process.env.FEEDBACK_DISCORD_WEBHOOK_URL = originalWebhook;
   }
 });
 
+test("reports a missing Cloudflare secret without sending anything", async () => {
+  const { POST } = await loadRoute();
+  const originalFetch = globalThis.fetch;
+  const originalWebhook = process.env.FEEDBACK_DISCORD_WEBHOOK_URL;
+  let fetchCalled = false;
+  delete process.env.FEEDBACK_DISCORD_WEBHOOK_URL;
+  globalThis.fetch = async () => {
+    fetchCalled = true;
+    return new Response(null, { status: 204 });
+  };
+  try {
+    const response = await POST(feedbackRequest());
+    assert.equal(response.status, 503);
+    assert.equal(fetchCalled, false);
+    assert.match((await response.json()).error, /не подключён/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWebhook === undefined) delete process.env.FEEDBACK_DISCORD_WEBHOOK_URL;
+    else process.env.FEEDBACK_DISCORD_WEBHOOK_URL = originalWebhook;
+  }
+});

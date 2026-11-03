@@ -1,7 +1,4 @@
 export const FEEDBACK_KINDS = ["Ошибка", "Предложение"] as const;
-export const FEEDBACK_FORM_ENDPOINT = "https://formsubmit.co/ajax/Nastych@mail.ru";
-export const FEEDBACK_NATIVE_FORM_ENDPOINT = "https://formsubmit.co/Nastych@mail.ru";
-export const FEEDBACK_EMAIL = "Nastych@mail.ru";
 
 export type FeedbackKind = typeof FEEDBACK_KINDS[number];
 
@@ -30,67 +27,24 @@ export function parseFeedbackRequest(value: unknown): FeedbackRequest | null {
   return { sender, kind, description, website, version, page };
 }
 
-export function feedbackEmailPayload(feedback: FeedbackRequest) {
+export function feedbackDiscordPayload(feedback: FeedbackRequest) {
+  const isError = feedback.kind === "Ошибка";
+  const fields = [
+    { name: "Отправитель", value: feedback.sender, inline: true },
+    { name: "Версия", value: feedback.version || "не указана", inline: true },
+  ];
+  if (feedback.page) fields.push({ name: "Страница", value: feedback.page, inline: false });
+
   return {
-    _subject: `[Чарник D100][${feedback.kind}] ${feedback.sender}`,
-    _template: "table",
-    _captcha: "false",
-    "Имя отправителя": feedback.sender,
-    "Тип сообщения": feedback.kind,
-    Описание: feedback.description,
-    Версия: feedback.version || "не указана",
-    Страница: feedback.page || "не указана",
+    username: "Красивый чарник D100 — обратная связь",
+    allowed_mentions: { parse: [] },
+    embeds: [{
+      title: isError ? "Ошибка в чарнике" : "Предложение для чарника",
+      description: feedback.description,
+      color: isError ? 0xa33a32 : 0x3f6f8f,
+      fields,
+      footer: { text: "Красивый чарник D100" },
+      timestamp: new Date().toISOString(),
+    }],
   };
-}
-
-/** Запасной путь, если внешний почтовый сервис временно не отвечает. */
-export function feedbackMailtoUrl(feedback: FeedbackRequest) {
-  const subject = `[Чарник D100][${feedback.kind}] ${feedback.sender}`;
-  const body = [
-    `Имя отправителя: ${feedback.sender}`,
-    `Тип сообщения: ${feedback.kind}`,
-    `Версия: ${feedback.version || "не указана"}`,
-    `Страница: ${feedback.page || "не указана"}`,
-    "",
-    feedback.description,
-  ].join("\n");
-  return `mailto:${FEEDBACK_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-}
-
-export type FeedbackProviderResult = {
-  ok: boolean;
-  activationRequired: boolean;
-  message: string;
-};
-
-/** FormSubmit returns string flags ("true"/"false") on its legacy AJAX API. */
-export function feedbackProviderResult(value: unknown, responseOk: boolean): FeedbackProviderResult {
-  const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
-  const success = input.success;
-  const modernOk = input.ok;
-  const message = typeof input.message === "string"
-    ? input.message.trim()
-    : typeof (input.error as { message?: unknown } | undefined)?.message === "string"
-      ? String((input.error as { message: string }).message).trim()
-      : "";
-  const explicitSuccess = success === true || success === "true" || modernOk === true;
-  const explicitFailure = success === false || success === "false" || modernOk === false;
-  const activationRequired = /activat/i.test(message);
-  return {
-    ok: responseOk && (explicitSuccess || !explicitFailure && !message),
-    activationRequired,
-    message,
-  };
-}
-
-export function feedbackProviderErrorText(result: FeedbackProviderResult): string {
-  if (result.activationRequired) {
-    return `Отправка почти готова: откройте письмо от FormSubmit на ${FEEDBACK_EMAIL} и один раз нажмите «Activate Form», затем повторите отправку.`;
-  }
-  if (/web server|referer/i.test(result.message)) {
-    return "Почтовый сервис отклонил запрос сайта. Обновите страницу и повторите отправку.";
-  }
-  return result.message
-    ? `Почтовый сервис ответил: ${result.message}`
-    : "Сервис отправки сейчас недоступен. Попробуйте немного позже.";
 }
