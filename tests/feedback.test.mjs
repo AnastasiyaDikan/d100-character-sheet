@@ -17,6 +17,7 @@ test("accepts only complete feedback and creates a sortable subject", async () =
   const mailto = rules.feedbackMailtoUrl(feedback);
   assert.match(mailto, /^mailto:Nastych@mail\.ru\?/);
   assert.match(decodeURIComponent(mailto), /Кнопка не открывается/);
+  assert.equal(rules.FEEDBACK_NATIVE_FORM_ENDPOINT, "https://formsubmit.co/Nastych@mail.ru");
   assert.equal(rules.parseFeedbackRequest({ sender: "Я", kind: "Другое", description: "Слишком коротко" }), null);
 });
 

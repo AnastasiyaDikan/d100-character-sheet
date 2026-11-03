@@ -1,5 +1,6 @@
 export const FEEDBACK_KINDS = ["Ошибка", "Предложение"] as const;
 export const FEEDBACK_FORM_ENDPOINT = "https://formsubmit.co/ajax/Nastych@mail.ru";
+export const FEEDBACK_NATIVE_FORM_ENDPOINT = "https://formsubmit.co/Nastych@mail.ru";
 export const FEEDBACK_EMAIL = "Nastych@mail.ru";
 
 export type FeedbackKind = typeof FEEDBACK_KINDS[number];
