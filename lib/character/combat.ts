@@ -1,7 +1,8 @@
-import { adjustedCharacteristicValue, characteristicAdjustment, effectiveBonus } from "./calculations";
+import { adjustedCharacteristicValue, characteristicAdjustment, characteristicCheckValue, effectiveBonus } from "./calculations";
+import type { SkillCheckOutcome } from "./skill-check";
 import type { Character, CharacteristicId, CombatSkillRank } from "./types";
 
-export type CombatCheckKind = "none" | "melee" | "shooting" | "both" | "parry-weapon" | "parry-shield" | "dodge" | "strength" | "skill" | "counterattack";
+export type CombatCheckKind = "none" | "melee" | "shooting" | "both" | "parry-weapon" | "parry-shield" | "dodge" | "strength" | "skill" | "counterattack" | "rapid-attack" | "lightning-attack";
 
 export type CombatAction = {
   id: string;
@@ -13,6 +14,7 @@ export type CombatAction = {
   usesWeapon?: boolean;
   dealsDamage?: boolean;
   requiresCounterattack?: boolean;
+  requiredTalent?: "Быстрая атака" | "Молниеносная атака";
 };
 
 export type CombatActionValue = {
@@ -36,6 +38,8 @@ export const COMBAT_ACTIONS: CombatAction[] = [
   { id: "called-shot", action: "Меткая атака", type: "Полное", subtype: "Атака любая, Концентрация", description: "Атаковать определённую зону цели с -20 НР или НС.", check: "both", usesWeapon: true, dealsDamage: true },
   { id: "overwatch", action: "Наблюдение", type: "Полное", subtype: "Атака, Концентрация, Стрельба", description: "Стреляет в цели, зашедшие в зону поражения. Если персонаж во время Наблюдения исполнит любое действие или реакцию, например Избегание, его Наблюдение немедленно прекращается.", check: "shooting", usesWeapon: true, dealsDamage: true },
   { id: "charge", action: "Натиск", type: "Полное", subtype: "Атака, Рукопашная, Движение", description: "Должен продвинуться хотя бы на 4 метра, +20 к НР.", check: "melee", usesWeapon: true, dealsDamage: true },
+  { id: "rapid-attack", action: "Быстрая атака", type: "Полу", subtype: "Атака, Рукопашная", description: "Потратив Полудействие, персонаж проходит проверку Навыка Рукопашки без дополнительных бонусов и штрафов. За каждые 2 успеха он получает +1 атаку. Число дополнительных атак не может превышать модификатор НР. Серия состоит из одной базовой и всех дополнительных атак. Для защиты проводится одна проверка защиты с количеством успехов не меньше общего числа атак.", check: "rapid-attack", usesWeapon: true, dealsDamage: true, requiredTalent: "Быстрая атака" },
+  { id: "lightning-attack", action: "Молниеносная атака", type: "Полу", subtype: "Атака, Рукопашная", description: "Потратив Полудействие, персонаж проходит проверку Навыка Рукопашки со штрафом -10. За каждый успех он получает +1 атаку. Число дополнительных атак не может превышать модификатор НР. Серия состоит из одной базовой и всех дополнительных атак. Для защиты проводится одна проверка защиты с количеством успехов не меньше общего числа атак.", check: "lightning-attack", usesWeapon: true, dealsDamage: true, requiredTalent: "Молниеносная атака" },
   { id: "stun", action: "Оглушение", type: "Полное", subtype: "Атака, Рукопашная", description: "Попытка Оглушить оппонента. Проверка НР с -20; при успехе бросается 1к10 + БС атакующего. Если значение больше либо равно БВын и значению брони на голове атакуемого, цель оглушается на количество раундов, равное разнице между двумя значениями.", check: "melee", usesWeapon: true, dealsDamage: true },
   { id: "cautious-attack", action: "Осторожная атака", type: "Полное", subtype: "Атака любая, Концентрация", description: "-10 к НС или НР, +10 ко всем проверкам Избегания до начала следующего раунда.", check: "both", usesWeapon: true, dealsDamage: true },
   { id: "knock-down", action: "Сбить с ног", type: "Полу", subtype: "Атака, Рукопашная", description: "Используется как часть Натиска или сразу после полудействия движения. Встречная проверка Силы с +10; при успехе цель сбита с ног. Две и более степени успеха наносят цели урон 1к5-3 + БС и один уровень Усталости; при провале с разницей в две и более степени успеха атакующий сбит с ног.", check: "strength" },
@@ -45,6 +49,30 @@ export const COMBAT_ACTIONS: CombatAction[] = [
 ];
 
 export const COMBAT_RANK_LABELS = ["Know", "+10", "+20", "+30", "+40"] as const;
+
+const normalizeTalentName = (value: string) => value.toLocaleLowerCase("ru").replace(/ё/g, "е").replace(/\s+/g, " ").trim();
+
+export function hasCombatTalent(character: Character, talentName: string) {
+  const expected = normalizeTalentName(talentName);
+  return character.talents.some((talent) => {
+    const actual = normalizeTalentName(talent.name);
+    return actual === expected || actual.startsWith(`${expected} (`) || actual.startsWith(`${expected}:`);
+  });
+}
+
+export function combatActionAvailable(character: Character, action: CombatAction) {
+  if (action.requiresCounterattack && !character.combatSettings.counterattack) return false;
+  return !action.requiredTalent || hasCombatTalent(character, action.requiredTalent);
+}
+
+export function combatAttackCount(character: Character, action: CombatAction, outcome: SkillCheckOutcome) {
+  if (!outcome.passed) return 0;
+  if (action.check !== "rapid-attack" && action.check !== "lightning-attack") return 1;
+  const successStep = action.check === "rapid-attack" ? 2 : 1;
+  const maximumExtraAttacks = Math.max(0, effectiveBonus(character, "melee"));
+  const extraAttacks = Math.min(maximumExtraAttacks, Math.floor(outcome.successes / successStep));
+  return 1 + extraAttacks;
+}
 
 export function combatActionRollsHitLocation(action: CombatAction) {
   return action.dealsDamage === true
@@ -113,6 +141,16 @@ function attackValue(character: Character, id: "melee" | "shooting", action: Com
 }
 
 export function combatActionValues(character: Character, action: CombatAction): CombatActionValue[] {
+  if (action.check === "rapid-attack" || action.check === "lightning-attack") {
+    const melee = characteristicCheckValue(character, "melee");
+    const penalty = action.check === "lightning-attack" ? -10 : 0;
+    const maximumExtraAttacks = Math.max(0, effectiveBonus(character, "melee"));
+    return [{
+      label: "НР",
+      value: Math.max(0, melee + penalty),
+      explanation: [`НР вместе с исходным модификатором ${melee}`, penalty ? "Молниеносная атака -10" : "без дополнительных бонусов и штрафов", `не более ${maximumExtraAttacks} дополнительных атак`].join("; "),
+    }];
+  }
   if (action.check === "counterattack") {
     const characteristic = adjustedCharacteristicValue(character, "melee");
     const modifier = effectiveBonus(character, "melee");

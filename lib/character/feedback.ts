@@ -1,5 +1,6 @@
 export const FEEDBACK_KINDS = ["Ошибка", "Предложение"] as const;
 export const FEEDBACK_FORM_ENDPOINT = "https://formsubmit.co/ajax/Nastych@mail.ru";
+export const FEEDBACK_EMAIL = "Nastych@mail.ru";
 
 export type FeedbackKind = typeof FEEDBACK_KINDS[number];
 
@@ -41,6 +42,20 @@ export function feedbackEmailPayload(feedback: FeedbackRequest) {
   };
 }
 
+/** Запасной путь, если внешний почтовый сервис временно не отвечает. */
+export function feedbackMailtoUrl(feedback: FeedbackRequest) {
+  const subject = `[Чарник D100][${feedback.kind}] ${feedback.sender}`;
+  const body = [
+    `Имя отправителя: ${feedback.sender}`,
+    `Тип сообщения: ${feedback.kind}`,
+    `Версия: ${feedback.version || "не указана"}`,
+    `Страница: ${feedback.page || "не указана"}`,
+    "",
+    feedback.description,
+  ].join("\n");
+  return `mailto:${FEEDBACK_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
 export type FeedbackProviderResult = {
   ok: boolean;
   activationRequired: boolean;
@@ -69,7 +84,7 @@ export function feedbackProviderResult(value: unknown, responseOk: boolean): Fee
 
 export function feedbackProviderErrorText(result: FeedbackProviderResult): string {
   if (result.activationRequired) {
-    return "Отправка почти готова: откройте письмо от FormSubmit на Nastych@mail.ru и один раз нажмите «Activate Form», затем повторите отправку.";
+    return `Отправка почти готова: откройте письмо от FormSubmit на ${FEEDBACK_EMAIL} и один раз нажмите «Activate Form», затем повторите отправку.`;
   }
   if (/web server|referer/i.test(result.message)) {
     return "Почтовый сервис отклонил запрос сайта. Обновите страницу и повторите отправку.";

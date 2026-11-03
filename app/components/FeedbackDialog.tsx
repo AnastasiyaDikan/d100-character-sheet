@@ -1,11 +1,11 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, LoaderCircle, Send } from "lucide-react";
+import { AlertTriangle, CheckCircle2, LoaderCircle, Mail, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FEEDBACK_FORM_ENDPOINT, FEEDBACK_KINDS, feedbackEmailPayload, feedbackProviderErrorText, feedbackProviderResult, type FeedbackKind } from "@/lib/character/feedback";
+import { FEEDBACK_KINDS, feedbackMailtoUrl, type FeedbackKind, type FeedbackRequest } from "@/lib/character/feedback";
 
 type Delivery = "idle" | "sending" | "sent" | "error";
 
@@ -20,6 +20,15 @@ export default function FeedbackDialog({ open, defaultSender, onOpenChange }: {
   const [website, setWebsite] = useState("");
   const [delivery, setDelivery] = useState<Delivery>("idle");
   const [deliveryMessage, setDeliveryMessage] = useState("");
+
+  const feedback: FeedbackRequest = {
+    sender: sender.trim(),
+    kind,
+    description: description.trim(),
+    website,
+    version: "0.19.0",
+    page: typeof window === "undefined" ? "" : window.location.href,
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -41,25 +50,16 @@ export default function FeedbackDialog({ open, defaultSender, onOpenChange }: {
       return;
     }
     try {
-      // FormSubmit documents this AJAX endpoint as cross-origin capable. A
-      // browser request also carries the real site origin/referrer, which the
-      // service uses for anti-spam checks and which a Worker-side proxy lacks.
-      const feedback = {
-        sender,
-        kind,
-        description,
-        website,
-        version: "0.18.0",
-        page: window.location.href,
-      };
-      const response = await fetch(FEEDBACK_FORM_ENDPOINT, {
+      // The browser talks only to our own route. The route contacts the mail
+      // provider server-side, so browser CORS restrictions cannot swallow the request.
+      const response = await fetch("/api/feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(feedbackEmailPayload(feedback)),
+        body: JSON.stringify(feedback),
       });
-      const provider = feedbackProviderResult(await response.json().catch(() => null), response.ok);
-      if (!provider.ok) {
-        setDeliveryMessage(feedbackProviderErrorText(provider));
+      const result = await response.json().catch(() => null) as { ok?: boolean; error?: string } | null;
+      if (!response.ok || result?.ok !== true) {
+        setDeliveryMessage(result?.error || "Сервис отправки сейчас недоступен. Попробуйте немного позже.");
         setDelivery("error");
         return;
       }
@@ -78,7 +78,7 @@ export default function FeedbackDialog({ open, defaultSender, onOpenChange }: {
       <label><span>Описание</span><textarea required minLength={10} maxLength={4_000} rows={7} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Что произошло или что вы предлагаете добавить?" /></label>
       <label className="feedback-honeypot" aria-hidden="true">Сайт<input tabIndex={-1} autoComplete="off" value={website} onChange={(event) => setWebsite(event.target.value)} /></label>
       {delivery === "sent" && <p className="feedback-status sent"><CheckCircle2 /> Сообщение отправлено. Спасибо!</p>}
-      {delivery === "error" && <p className="feedback-status error"><AlertTriangle /> {deliveryMessage || "Не удалось отправить сообщение."}</p>}
+      {delivery === "error" && <div className="feedback-status error"><AlertTriangle /><span>{deliveryMessage || "Не удалось отправить сообщение."}</span><a href={feedbackMailtoUrl(feedback)}><Mail /> Открыть письмо вручную</a></div>}
       <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{delivery === "sent" ? "Готово" : "Отмена"}</Button>{delivery !== "sent" && <Button type="submit" disabled={delivery === "sending" || sender.trim().length < 2 || description.trim().length < 10}>{delivery === "sending" ? <><LoaderCircle className="spin" /> Отправка…</> : <><Send /> Отправить</>}</Button>}</DialogFooter>
     </form>
   </DialogContent></Dialog>;

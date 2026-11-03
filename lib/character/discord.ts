@@ -1,7 +1,12 @@
 import { DICE_SIDES } from "./dice";
-import { evaluateSkillCheck } from "./skill-check";
+import { evaluateSkillCheck, successWord } from "./skill-check";
 import { hitLocationAccusative, hitLocationForRoll, type HitLocationResult } from "./hit-location";
 import { formatWeaponDamage, type WeaponDamageResult } from "./weapon-damage";
+
+export type DiscordAttackResult = {
+  damage?: WeaponDamageResult;
+  hitLocation?: HitLocationResult;
+};
 
 export type DiscordRollRequest = {
   webhookUrl: string;
@@ -20,6 +25,8 @@ export type DiscordRollRequest = {
   checkLabel?: string;
   damage?: WeaponDamageResult;
   hitLocation?: HitLocationResult;
+  attackCount?: number;
+  attackResults?: DiscordAttackResult[];
   initiativeModifier?: number;
   initiativeTotal?: number;
   initiativeDoubled?: boolean;
@@ -70,6 +77,21 @@ function validHitLocation(hitLocation: HitLocationResult | undefined, result?: n
     && hitLocation.location === hitLocationForRoll(hitLocation.roll));
 }
 
+function validAttackSeries(request: DiscordRollRequest) {
+  if (request.attackCount === undefined && request.attackResults === undefined) return true;
+  return Number.isInteger(request.attackCount)
+    && Number(request.attackCount) >= 2
+    && Number(request.attackCount) <= 50
+    && Array.isArray(request.attackResults)
+    && request.attackResults.length === request.attackCount
+    && request.attackResults.every((attack) => {
+      if (!attack || typeof attack !== "object") return false;
+      if (attack.damage !== undefined && !validDamage(attack.damage)) return false;
+      if (attack.hitLocation !== undefined && !validHitLocation(attack.hitLocation, attack.hitLocation.roll)) return false;
+      return attack.damage !== undefined || attack.hitLocation !== undefined;
+    });
+}
+
 export function validDiscordRoll(request: DiscordRollRequest) {
   if (request.test === true) return true;
   if (request.kind === "damage") return validDamage(request.damage);
@@ -116,7 +138,21 @@ export function validDiscordRoll(request: DiscordRollRequest) {
   if (!validCombat) return false;
   if (request.damage !== undefined && !validDamage(request.damage)) return false;
   if (request.hitLocation !== undefined && !validHitLocation(request.hitLocation, request.hitLocation.roll)) return false;
-  return true;
+  return validAttackSeries(request);
+}
+
+function formatAttackSeries(request: DiscordRollRequest) {
+  if (!Array.isArray(request.attackResults) || request.attackResults.length < 2) return "";
+  const attacks = request.attackResults.map((attack, index) => {
+    const damage = attack.damage
+      ? `урон **${attack.damage.total}** (${formatWeaponDamage(attack.damage)})`
+      : "урон не указан";
+    const location = attack.hitLocation
+      ? `попадание ${attack.hitLocation.roll} — ${hitLocationAccusative(attack.hitLocation.location)}`
+      : "зона попадания не указана";
+    return `**Удар ${index + 1}:** ${damage}; ${location}`;
+  });
+  return `\n\n**Всего атак: ${request.attackResults.length}**\nДля защиты требуется ${request.attackResults.length} ${successWord(request.attackResults.length)} одной проверкой.\n${attacks.join("\n")}`;
 }
 
 export function discordMessagePayload(request: DiscordRollRequest, hasAvatar: boolean) {
@@ -159,6 +195,7 @@ export function discordMessagePayload(request: DiscordRollRequest, hasAvatar: bo
           const hitLocationText = request.kind === "combat" && request.hitLocation
             ? `\n\n**Карта попаданий — ${request.hitLocation.roll}**\nАтака попала в ${hitLocationAccusative(request.hitLocation.location)}.`
             : "";
+          const attackSeriesText = request.kind === "combat" ? formatAttackSeries(request) : "";
           return {
             author: { name: characterName },
             title: request.kind === "skill"
@@ -166,7 +203,7 @@ export function discordMessagePayload(request: DiscordRollRequest, hasAvatar: bo
               : request.kind === "characteristic"
                 ? `Проверка характеристики «${request.characteristicName?.trim()}» d100`
                 : `Боевое действие «${request.actionName?.trim()}» — ${request.checkLabel?.trim()}`,
-            description: `Порог — ${request.threshold}\n# ${request.result}\n**${outcome.text}**${damageText}${hitLocationText}`,
+            description: `Порог — ${request.threshold}\n# ${request.result}\n**${outcome.text}**${damageText}${hitLocationText}${attackSeriesText}`,
             color: customColor ?? (outcome.passed ? 0x477a45 : 0x8f3028),
           };
         })()

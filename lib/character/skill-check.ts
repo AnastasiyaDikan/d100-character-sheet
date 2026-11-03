@@ -8,7 +8,7 @@ export type SkillCheckOutcome = {
   text: string;
 };
 
-function successWord(value: number) {
+export function successWord(value: number) {
   const lastTwo = value % 100;
   const last = value % 10;
   if (lastTwo >= 11 && lastTwo <= 14) return "успехов";

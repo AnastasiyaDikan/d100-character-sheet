@@ -7,7 +7,8 @@ async function loadRules() {
     export { createCharacter, RACES } from ${JSON.stringify(new URL("../lib/character/data.ts", import.meta.url).pathname)};
     export { applyRace, calculateNaturalArmor, calculateRaceWounds } from ${JSON.stringify(new URL("../lib/character/race-engine.ts", import.meta.url).pathname)};
     export { adjustedCharacteristicValue, adjustedEffectiveBonus, characteristicCheckValue, carrying, effectiveBonus, experienceCost, fatigueEffect, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillModifier, skillThreshold, spentExperience, supernaturalBonus, supernaturalMultiplier, zoneDefense } from ${JSON.stringify(new URL("../lib/character/calculations.ts", import.meta.url).pathname)};
-    export { COMBAT_ACTIONS, combatActionRollsHitLocation, combatActionValues, selectedCombatRank } from ${JSON.stringify(new URL("../lib/character/combat.ts", import.meta.url).pathname)};
+    export { COMBAT_ACTIONS, combatActionAvailable, combatActionRollsHitLocation, combatActionValues, combatAttackCount, selectedCombatRank } from ${JSON.stringify(new URL("../lib/character/combat.ts", import.meta.url).pathname)};
+    export { rollCombatStrikes } from ${JSON.stringify(new URL("../lib/character/combat-roll.ts", import.meta.url).pathname)};
     export { normalizeCharacter } from ${JSON.stringify(new URL("../lib/character/storage.ts", import.meta.url).pathname)};
     export { DICE_SIDES, rollDie } from ${JSON.stringify(new URL("../lib/character/dice.ts", import.meta.url).pathname)};
     export { discordMessagePayload, parseDiscordWebhookUrl, validDiscordRoll } from ${JSON.stringify(new URL("../lib/character/discord.ts", import.meta.url).pathname)};
@@ -230,6 +231,43 @@ test("calculates combat actions from the current characteristics and saved modif
     characteristics: { ...base.characteristics, melee: { ...base.characteristics.melee, value: 35 } },
   };
   assert.equal(rules.combatActionValues(tired, standardAttack)[0].value, 30, "17 after fatigue + original modifier 3 + standard attack 10");
+});
+
+test("shows talent-only multiattacks and calculates every strike in the series", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  const rapid = rules.COMBAT_ACTIONS.find((action) => action.id === "rapid-attack");
+  const lightning = rules.COMBAT_ACTIONS.find((action) => action.id === "lightning-attack");
+  const weapon = {
+    id: "blade", name: "Клинок", weaponClass: "Клинковое", range: "", rate: "", damage: "к6",
+    damageOneHand: "к6", damageTwoHands: "", extraDamage: "", penetration: "", magazine: "", reload: "", properties: "",
+    collapsed: false, active: true, damageCharacteristic: "strength", damageMode: 0,
+  };
+  const character = {
+    ...base,
+    characteristics: { ...base.characteristics, melee: { ...base.characteristics.melee, value: 70 } },
+    combatSettings: { ...base.combatSettings, expert: true, frenzy: true, shoulderToShoulder: 20, weaponModifier: 10, aimBonus: 20 },
+    talents: [talent("Быстрая атака"), talent("Молниеносная атака")],
+    weapons: [weapon],
+  };
+
+  assert.equal(rules.combatActionAvailable(base, rapid), false);
+  assert.equal(rules.combatActionAvailable(character, rapid), true);
+  assert.equal(rules.combatActionAvailable(character, lightning), true);
+  assert.equal(rules.combatActionValues(character, rapid)[0].value, 77, "no combat toggles are added to raw melee");
+  assert.equal(rules.combatActionValues(character, lightning)[0].value, 67, "lightning attack applies only its -10");
+
+  const fourSuccesses = { roll: 37, threshold: 77, passed: true, critical: null, successes: 4, failures: 0, text: "" };
+  assert.equal(rules.combatAttackCount(character, rapid, fourSuccesses), 3, "base attack plus one per two successes");
+  assert.equal(rules.combatAttackCount(character, lightning, fourSuccesses), 5, "base attack plus one per success");
+  assert.equal(rules.combatAttackCount(character, lightning, { ...fourSuccesses, successes: 30 }), 8, "extra attacks are capped by the melee modifier");
+
+  const damageRolls = [1, 2, 3];
+  const locationRolls = [1, 24, 71];
+  const strikes = rules.rollCombatStrikes(character, rapid, fourSuccesses, () => damageRolls.shift(), () => locationRolls.shift());
+  assert.equal(strikes.length, 3);
+  assert.deepEqual(strikes.map((strike) => strike.damage.total), [3, 4, 5], "every attack rolls its own damage pool and adds the stat separately");
+  assert.deepEqual(strikes.map((strike) => strike.hitLocation.location), ["Голова", "Левая рука", "Правая нога"]);
 });
 
 test("separates weapon and shield parry modifiers", async () => {
@@ -495,6 +533,19 @@ test("accepts only Discord webhook URLs and builds safe roll embeds", async () =
   const combatHitPayload = rules.discordMessagePayload({ characterName: "Лиза Ашвинг", kind: "combat", sides: 100, result: 13, actionName: "Стандартная атака", checkLabel: "НР", threshold: 89, hitLocation }, true);
   assert.match(combatHitPayload.embeds[0].description, /Атака попала в левую руку/);
   assert.equal(rules.validDiscordRoll({ kind: "combat", sides: 100, result: 13, actionName: "Стандартная атака", checkLabel: "НР", threshold: 89, hitLocation }), true);
+  const attackResults = [
+    { damage, hitLocation },
+    { damage: { ...damage, rolls: [1, 2, 3], total: 11 }, hitLocation: { roll: 42, location: "Корпус" } },
+  ];
+  const seriesRequest = { characterName: "Лиза Ашвинг", kind: "combat", sides: 100, result: 13, actionName: "Быстрая атака", checkLabel: "НР", threshold: 89, attackCount: 2, attackResults };
+  assert.equal(rules.validDiscordRoll(seriesRequest), true);
+  const seriesPayload = rules.discordMessagePayload(seriesRequest, true);
+  assert.match(seriesPayload.embeds[0].description, /Всего атак: 2/);
+  assert.match(seriesPayload.embeds[0].description, /Для защиты требуется 2 успеха/);
+  assert.match(seriesPayload.embeds[0].description, /Удар 1/);
+  assert.match(seriesPayload.embeds[0].description, /Удар 1:.*урон \*\*19\*\*/);
+  assert.match(seriesPayload.embeds[0].description, /Удар 2/);
+  assert.match(seriesPayload.embeds[0].description, /Удар 2:.*урон \*\*11\*\*/);
   const initiativePayload = rules.discordMessagePayload({ characterName: "Лиза Ашвинг", kind: "initiative", sides: 10, result: 6, initiativeModifier: 8, initiativeTotal: 14, initiativeDoubled: true }, true);
   assert.match(initiativePayload.embeds[0].description, /удвоен талантом/);
   assert.equal(rules.validDiscordRoll({ kind: "initiative", sides: 10, result: 6, initiativeModifier: 8, initiativeTotal: 14 }), true);

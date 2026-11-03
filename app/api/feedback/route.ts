@@ -30,6 +30,7 @@ export async function POST(request: Request) {
         Referer: `${origin}/`,
       },
       body: JSON.stringify(feedbackEmailPayload(feedback)),
+      signal: AbortSignal.timeout(15_000),
     });
     const provider = feedbackProviderResult(await response.json().catch(() => null), response.ok);
     if (!provider.ok) {
