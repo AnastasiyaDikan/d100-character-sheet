@@ -1,18 +1,18 @@
 "use client";
 
-import { useState, type MouseEvent, type ReactNode } from "react";
+import { useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, ArrowUpRight, CheckCircle2, Dices, Info, LoaderCircle, RotateCcw, Swords } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Check, CheckCircle2, ChevronDown, Dices, Info, LoaderCircle, RotateCcw, Swords } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { COMBAT_ACTIONS, COMBAT_RANK_LABELS, combatActionAvailable, combatActionValues, mainSkillRank, selectedCombatRank, type CombatAction } from "@/lib/character/combat";
-import { rollCombatStrikes, type CombatStrikeRoll } from "@/lib/character/combat-roll";
+import { activeCombatWeapon, rollCombatStrikes, selectCombatWeapon, type CombatStrikeRoll } from "@/lib/character/combat-roll";
 import { rollDie } from "@/lib/character/dice";
 import { createCharacterThumbnail, discordIsConnected, loadDiscordSettings, sendDiscordRoll } from "@/lib/character/discord-client";
 import { hitLocationAccusative, type HitLocationResult } from "@/lib/character/hit-location";
 import { evaluateSkillCheck, successWord, type SkillCheckOutcome } from "@/lib/character/skill-check";
-import { formatWeaponDamage, type WeaponDamageResult } from "@/lib/character/weapon-damage";
+import { formatWeaponDamage, selectedWeaponDamage, type WeaponDamageResult } from "@/lib/character/weapon-damage";
 import type { Character, CombatSettings, CombatSkillRank } from "@/lib/character/types";
 
 type CombatRoll = SkillCheckOutcome & {
@@ -54,7 +54,11 @@ export default function CombatActionsDialog({ character, onChange }: { character
   const [open, setOpen] = useState(false);
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
   const [combatRoll, setCombatRoll] = useState<CombatRoll | null>(null);
+  const [weaponPickerOpen, setWeaponPickerOpen] = useState(false);
+  const [weaponError, setWeaponError] = useState("");
+  const weaponPickerRef = useRef<HTMLDivElement>(null);
   const settings = character.combatSettings;
+  const selectedWeapon = activeCombatWeapon(character);
   const priority = ["standard-attack", "all-out-attack", "charge", "rapid-attack", "lightning-attack", "dodge", "parry-weapon", "parry-shield", "feint"];
   const actions = COMBAT_ACTIONS.filter((action) => combatActionAvailable(character, action))
     .sort((left, right) => {
@@ -65,12 +69,31 @@ export default function CombatActionsDialog({ character, onChange }: { character
       return leftIndex - rightIndex;
     });
   const update = (patch: Partial<CombatSettings>) => onChange({ ...character, combatSettings: { ...settings, ...patch } });
+  const showWeaponPicker = (withError = false) => {
+    setWeaponPickerOpen(true);
+    setWeaponError(withError
+      ? character.weapons.length > 0
+        ? "Для броска атаки сначала выберите оружие, которым наносится урон."
+        : "В чарнике пока нет оружия. Добавьте его на второй странице, затем вернитесь к атаке."
+      : "");
+    requestAnimationFrame(() => weaponPickerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }));
+  };
+  const chooseWeapon = (weaponId: string) => {
+    onChange(selectCombatWeapon(character, weaponId));
+    setWeaponPickerOpen(false);
+    setWeaponError("");
+  };
   const showDescription = (event: MouseEvent, text: string) => setTooltip({
     text,
     x: Math.max(12, event.clientX - 350),
     y: Math.max(12, Math.min(window.innerHeight - 150, event.clientY - 18)),
   });
   const rollCombatCheck = (action: CombatAction, label: string, threshold: number) => {
+    if (action.dealsDamage && !selectedWeapon) {
+      setCombatRoll(null);
+      showWeaponPicker(true);
+      return;
+    }
     const result = rollDie(100);
     const serial = Date.now() + Math.random();
     const outcome = evaluateSkillCheck(threshold, result);
@@ -109,7 +132,7 @@ export default function CombatActionsDialog({ character, onChange }: { character
 
   return <>
     <Button className="combat-actions-button fantasy-button" onClick={() => setOpen(true)}><Swords /> Боевые действия</Button>
-    <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) setTooltip(null); }}>
+    <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) { setTooltip(null); setWeaponPickerOpen(false); setWeaponError(""); } }}>
       <DialogContent className="paper-dialog combat-actions-dialog">
         <DialogHeader><DialogTitle><Swords /> Значения для Боевых действий</DialogTitle><DialogDescription>Выберите действующие таланты и снаряжение. Значения пересчитываются сразу и сохраняются вместе с персонажем.</DialogDescription></DialogHeader>
         <div className="combat-dialog-body">
@@ -128,6 +151,20 @@ export default function CombatActionsDialog({ character, onChange }: { character
             <div className="shield-setting"><Toggle checked={settings.shieldEnabled} onChange={(shieldEnabled) => update({ shieldEnabled })}><strong>Щит</strong><small>добавить его бонус к Парированию</small></Toggle><label><span>Бонус</span><input type="number" min="0" value={settings.shieldBonus === 0 ? "" : settings.shieldBonus} placeholder="0" disabled={!settings.shieldEnabled} onFocus={(event) => event.currentTarget.select()} onChange={(event) => update({ shieldBonus: event.target.value === "" ? 0 : Number(event.target.value) })} /></label></div>
             <RankSelector title="Парирование" skillId="parry" character={character} onChange={(parryRank) => update({ parryRank })} />
             <RankSelector title="Уклонение" skillId="dodge" character={character} onChange={(dodgeRank) => update({ dodgeRank })} />
+            <div ref={weaponPickerRef} className={`combat-weapon-selector ${weaponPickerOpen ? "open" : ""} ${weaponError ? "has-error" : ""}`}>
+              <div className="combat-weapon-summary">
+                <span><strong>Оружие для атаки</strong><small>{selectedWeapon ? `${selectedWeapon.name.trim() || "Без названия"} · ${selectedWeaponDamage(selectedWeapon) || "урон не заполнен"}` : "Оружие не выбрано"}</small></span>
+                <button type="button" onClick={() => weaponPickerOpen ? setWeaponPickerOpen(false) : showWeaponPicker()}><Swords /> {selectedWeapon ? "Сменить оружие" : "Выбрать оружие"}<ChevronDown /></button>
+              </div>
+              {weaponError && <p className="combat-weapon-error"><AlertTriangle /> {weaponError}</p>}
+              {weaponPickerOpen && <div className="combat-weapon-list" role="listbox" aria-label="Оружие для боевых действий">
+                {character.weapons.length === 0
+                  ? <p>Список пуст. Закройте окно, перейдите на вторую страницу и добавьте оружие.</p>
+                  : character.weapons.map((weapon) => <button type="button" role="option" aria-selected={weapon.active} className={weapon.active ? "selected" : ""} key={weapon.id} onClick={() => chooseWeapon(weapon.id)}>
+                    <span><strong>{weapon.name.trim() || "Оружие без названия"}</strong><small>{[weapon.weaponClass.trim(), selectedWeaponDamage(weapon) || "урон не заполнен"].filter(Boolean).join(" · ")}</small></span>{weapon.active && <Check />}
+                  </button>)}
+              </div>}
+            </div>
           </section>
 
           <section className="combat-table-wrap" aria-label="Таблица боевых действий">

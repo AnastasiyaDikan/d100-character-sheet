@@ -8,7 +8,7 @@ async function loadRules() {
     export { applyRace, calculateNaturalArmor, calculateRaceWounds } from ${JSON.stringify(new URL("../lib/character/race-engine.ts", import.meta.url).pathname)};
     export { adjustedCharacteristicValue, adjustedEffectiveBonus, characteristicCheckValue, carrying, effectiveBonus, experienceCost, fatigueEffect, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillModifier, skillThreshold, spentExperience, supernaturalBonus, supernaturalMultiplier, zoneDefense } from ${JSON.stringify(new URL("../lib/character/calculations.ts", import.meta.url).pathname)};
     export { COMBAT_ACTIONS, combatActionAvailable, combatActionRollsHitLocation, combatActionValues, combatAttackCount, selectedCombatRank } from ${JSON.stringify(new URL("../lib/character/combat.ts", import.meta.url).pathname)};
-    export { rollCombatStrikes } from ${JSON.stringify(new URL("../lib/character/combat-roll.ts", import.meta.url).pathname)};
+    export { activeCombatWeapon, rollCombatStrikes, selectCombatWeapon } from ${JSON.stringify(new URL("../lib/character/combat-roll.ts", import.meta.url).pathname)};
     export { normalizeCharacter } from ${JSON.stringify(new URL("../lib/character/storage.ts", import.meta.url).pathname)};
     export { DICE_SIDES, rollDie } from ${JSON.stringify(new URL("../lib/character/dice.ts", import.meta.url).pathname)};
     export { discordMessagePayload, parseDiscordWebhookUrl, validDiscordRoll } from ${JSON.stringify(new URL("../lib/character/discord.ts", import.meta.url).pathname)};
@@ -275,6 +275,26 @@ test("shows talent-only multiattacks and calculates every strike in the series",
   assert.equal(strikes.length, 3);
   assert.deepEqual(strikes.map((strike) => strike.damage.total), [3, 4, 5], "every attack rolls its own damage pool and adds the stat separately");
   assert.deepEqual(strikes.map((strike) => strike.hitLocation.location), ["Голова", "Левая рука", "Правая нога"]);
+});
+
+test("selects exactly one weapon for combat damage and preserves it in the character", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  const weapons = [
+    { id: "sword", name: "Меч", weaponClass: "Клинковое", range: "", rate: "", damage: "", damageOneHand: "к8", damageTwoHands: "к10", extraDamage: "", penetration: "", magazine: "", reload: "", properties: "", collapsed: false, active: false, damageCharacteristic: "strength", damageMode: 0 },
+    { id: "axe", name: "Топор", weaponClass: "Рубящее", range: "", rate: "", damage: "", damageOneHand: "к10", damageTwoHands: "", extraDamage: "", penetration: "", magazine: "", reload: "", properties: "", collapsed: false, active: false, damageCharacteristic: "strength", damageMode: 0 },
+  ];
+  const character = { ...base, weapons };
+
+  assert.equal(rules.activeCombatWeapon(character), null);
+  const withSword = rules.selectCombatWeapon(character, "sword");
+  assert.equal(rules.activeCombatWeapon(withSword).id, "sword");
+  assert.deepEqual(withSword.weapons.map((weapon) => weapon.active), [true, false]);
+
+  const withAxe = rules.selectCombatWeapon(withSword, "axe");
+  assert.equal(rules.activeCombatWeapon(withAxe).id, "axe");
+  assert.deepEqual(withAxe.weapons.map((weapon) => weapon.active), [false, true]);
+  assert.equal(rules.selectCombatWeapon(withAxe, "missing"), withAxe);
 });
 
 test("separates weapon and shield parry modifiers", async () => {
