@@ -220,8 +220,14 @@ test("calculates combat actions from the current characteristics and saved modif
   assert.equal(rules.combatActionValues({ ...expert, combatSettings: { ...expert.combatSettings, shoulderToShoulder: 20 } }, standardAttack)[0].value, 117);
 
   const allOut = rules.COMBAT_ACTIONS.find((action) => action.id === "all-out-attack");
+  const charge = rules.COMBAT_ACTIONS.find((action) => action.id === "charge");
   const knockDown = rules.COMBAT_ACTIONS.find((action) => action.id === "knock-down");
+  const withSixtyMelee = { ...base, characteristics: { ...base.characteristics, melee: { ...base.characteristics.melee, value: 60 } } };
   assert.equal(rules.combatActionValues(withMelee, allOut)[0].value, 107);
+  assert.equal(rules.combatActionValues(withMelee, charge)[0].value, 97, "charge adds its base +20");
+  assert.equal(rules.combatActionValues({ ...withMelee, combatSettings: { ...withMelee.combatSettings, berserkerCharge: true } }, charge)[0].value, 107, "Berserker Charge replaces +20 with +30");
+  assert.equal(rules.combatActionValues(withSixtyMelee, charge)[0].value, 86, "NR 60 + modifier 6 + charge 20");
+  assert.equal(rules.combatActionValues({ ...withSixtyMelee, combatSettings: { ...withSixtyMelee.combatSettings, berserkerCharge: true } }, charge)[0].value, 96);
   assert.equal(rules.combatActionValues(base, knockDown)[0].value, 32);
   assert.equal(rules.combatActionValues({ ...withMelee, combatSettings: { ...withMelee.combatSettings, aimBonus: 20 } }, standardAttack)[0].value, 107);
 

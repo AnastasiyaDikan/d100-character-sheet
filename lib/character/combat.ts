@@ -110,7 +110,11 @@ export function sharedWeaponBonus(character: Character) {
 }
 
 function actionBonus(character: Character, action: CombatAction) {
-  const fixed = action.id === "all-out-attack" ? 30 : action.id === "standard-attack" ? 10 : 0;
+  const fixed = action.id === "all-out-attack"
+    ? 30
+    : action.id === "charge"
+      ? character.combatSettings.berserkerCharge ? 30 : 20
+      : action.id === "standard-attack" ? 10 : 0;
   const aimed = action.subtype.toLocaleLowerCase("ru").includes("атака") ? character.combatSettings.aimBonus : 0;
   return { fixed, aimed };
 }
@@ -123,13 +127,11 @@ function attackValue(character: Character, id: "melee" | "shooting", action: Com
     settings.expert ? "Эксперт +10" : "",
     settings.shoulderToShoulder ? `Плечом к Плечу +${settings.shoulderToShoulder}` : "",
     settings.frenzy ? "Неистовство +10" : "",
-    action.id === "charge" && settings.berserkerCharge ? "Натиск Берсерка +30" : "",
-    bonus.fixed ? `${action.action} +${bonus.fixed}` : "",
+    bonus.fixed ? action.id === "charge" && settings.berserkerCharge ? "Натиск Берсерка +30" : `${action.action} +${bonus.fixed}` : "",
     bonus.aimed ? `Прицеливание +${bonus.aimed}` : "",
     action.usesWeapon && settings.weaponModifier ? `Оружие ${settings.weaponModifier >= 0 ? "+" : ""}${settings.weaponModifier}` : "",
   ].filter(Boolean);
   const extra = sharedWeaponBonus(character)
-    + (action.id === "charge" && settings.berserkerCharge ? 30 : 0)
     + bonus.fixed
     + bonus.aimed
     + (action.usesWeapon ? settings.weaponModifier : 0);
