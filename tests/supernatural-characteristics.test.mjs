@@ -13,8 +13,9 @@ async function loadRules() {
     export { DICE_SIDES, rollDie } from ${JSON.stringify(new URL("../lib/character/dice.ts", import.meta.url).pathname)};
     export { discordMessagePayload, parseDiscordWebhookUrl, validDiscordRoll } from ${JSON.stringify(new URL("../lib/character/discord.ts", import.meta.url).pathname)};
     export { evaluateSkillCheck } from ${JSON.stringify(new URL("../lib/character/skill-check.ts", import.meta.url).pathname)};
+    export { specializationCharacteristic } from ${JSON.stringify(new URL("../lib/character/skills.ts", import.meta.url).pathname)};
     export { hitLocationForRoll, hitLocationAccusative } from ${JSON.stringify(new URL("../lib/character/hit-location.ts", import.meta.url).pathname)};
-    export { hasLightningReflexes, initiativeModifier } from ${JSON.stringify(new URL("../lib/character/initiative.ts", import.meta.url).pathname)};
+    export { hasLightningReflexes, hasParanoia, initiativeModifier } from ${JSON.stringify(new URL("../lib/character/initiative.ts", import.meta.url).pathname)};
     export { parseDamageExpression, parseWeaponDamage, rollWeaponDamage, selectedWeaponDamage, weaponDamageModes, weaponExplosionRank } from ${JSON.stringify(new URL("../lib/character/weapon-damage.ts", import.meta.url).pathname)};
   `;
   const result = await build({ stdin: { contents: entry, loader: "ts", resolveDir: process.cwd() }, bundle: true, platform: "node", format: "esm", write: false });
@@ -145,6 +146,10 @@ test("rolls initiative from adjusted agility and doubles it for Lightning Reflex
   const withTalent = { ...character, talents: [talent("Молниеносные Рефлексы")] };
   assert.equal(rules.hasLightningReflexes(withTalent), true);
   assert.equal(rules.initiativeModifier(withTalent), 12);
+  const withParanoia = { ...character, talents: [talent("Паранойя")] };
+  assert.equal(rules.hasParanoia(withParanoia), true);
+  assert.equal(rules.initiativeModifier(withParanoia), 8, "Paranoia adds +2 after the agility modifier");
+  assert.equal(rules.initiativeModifier({ ...character, talents: [talent("Молниеносные Рефлексы"), talent("Паранойя")] }), 14);
 });
 
 test("fatigue compares tens against the full characteristic before halving or nullifying it", async () => {
@@ -191,6 +196,41 @@ test("fatigue compares tens against the full characteristic before halving or nu
   assert.equal(rules.fatiguedCharacteristicValue(originalModifier, "perception"), 17);
   assert.equal(rules.characteristicCheckValue(originalModifier, "perception"), 20, "17 after fatigue still uses the original +3 bonus");
   assert.equal(rules.adjustedEffectiveBonus(originalModifier, "perception"), 1, "derived values still react to the reduced characteristic");
+});
+
+test("applies every modeled Frenzy effect only when the talent is present and enabled", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  const characteristics = {
+    ...base.characteristics,
+    melee: { ...base.characteristics.melee, value: 40 },
+    strength: { ...base.characteristics.strength, value: 30 },
+    endurance: { ...base.characteristics.endurance, value: 40 },
+    willpower: { ...base.characteristics.willpower, value: 30 },
+    shooting: { ...base.characteristics.shooting, value: 50 },
+    intelligence: { ...base.characteristics.intelligence, value: 50 },
+  };
+  const toggledWithoutTalent = { ...base, fatigueCurrent: 4, characteristics, combatSettings: { ...base.combatSettings, frenzy: true } };
+  assert.equal(rules.fatigueEffect(toggledWithoutTalent, "melee"), "halved", "the checkbox alone must not grant the talent");
+  assert.equal(rules.adjustedCharacteristicValue(toggledWithoutTalent, "strength"), 15);
+
+  const active = { ...toggledWithoutTalent, talents: [talent("Неистовство")] };
+  assert.equal(rules.fatigueEffect(active, "melee"), "none", "Frenzy ignores fatigue effects");
+  assert.equal(rules.adjustedCharacteristicValue(active, "melee"), 50);
+  assert.equal(rules.adjustedCharacteristicValue(active, "strength"), 40);
+  assert.equal(rules.adjustedCharacteristicValue(active, "endurance"), 50);
+  assert.equal(rules.adjustedCharacteristicValue(active, "willpower"), 40);
+  assert.equal(rules.adjustedCharacteristicValue(active, "shooting"), 30);
+  assert.equal(rules.adjustedCharacteristicValue(active, "intelligence"), 30);
+
+  const standard = rules.COMBAT_ACTIONS.find((action) => action.id === "standard-attack");
+  assert.deepEqual(rules.combatActionValues(active, standard).map((item) => item.value), [64, 45]);
+  assert.match(rules.combatActionValues(active, standard)[0].explanation, /Неистовство \+10/);
+  for (const id of ["parry-weapon", "parry-shield", "disengage"]) {
+    const value = rules.combatActionValues(active, rules.COMBAT_ACTIONS.find((action) => action.id === id))[0];
+    assert.equal(value.value, null);
+    assert.match(value.explanation, /Неистовство/);
+  }
 });
 
 test("uses the requested experience price table and permits a manual spent total", async () => {
@@ -312,9 +352,9 @@ test("separates weapon and shield parry modifiers", async () => {
     ...base,
     characteristics: { ...base.characteristics, melee: { ...base.characteristics.melee, value: 70 } },
     skills: base.skills.map((skill) => skill.id === "parry" ? { ...skill, level: 1 } : skill),
-    combatSettings: { ...base.combatSettings, expert: true, frenzy: true, shoulderToShoulder: 20, shieldEnabled: true, shieldBonus: 15 },
+    combatSettings: { ...base.combatSettings, expert: true, shoulderToShoulder: 20, shieldEnabled: true, shieldBonus: 15 },
   };
-  assert.equal(rules.combatActionValues(character, weaponParry)[0].value, 117);
+  assert.equal(rules.combatActionValues(character, weaponParry)[0].value, 107);
   assert.equal(rules.combatActionValues(character, shieldParry)[0].value, 112);
 });
 
@@ -439,6 +479,34 @@ test("adds combat defaults to old saves and preserves valid combat choices", asy
   assert.deepEqual(rules.normalizeCharacter({ ...configured, weapons: [legacyWeapon] }).weapons[0], { ...legacyWeapon, damageOneHand: "d8", damageTwoHands: "", extraDamage: "", active: false, damageCharacteristic: "strength", damageMode: 0 });
 });
 
+test("adds and preserves in-game training progress for characteristics and talents", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  assert.equal(base.characteristics.strength.trainingProgress, null);
+  assert.equal(base.characteristics.strength.trainingGoal, 10);
+
+  const legacyStrength = { ...base.characteristics.strength };
+  delete legacyStrength.trainingProgress;
+  delete legacyStrength.trainingGoal;
+  const normalizedLegacy = rules.normalizeCharacter({
+    ...base,
+    characteristics: { ...base.characteristics, strength: legacyStrength },
+    talents: [talent("Паранойя")],
+  });
+  assert.equal(normalizedLegacy.characteristics.strength.trainingProgress, null);
+  assert.equal(normalizedLegacy.characteristics.strength.trainingGoal, 10);
+  assert.equal(normalizedLegacy.talents[0].trainingProgress, null);
+  assert.equal(normalizedLegacy.talents[0].trainingGoal, 10);
+
+  const saved = rules.normalizeCharacter({
+    ...base,
+    characteristics: { ...base.characteristics, strength: { ...base.characteristics.strength, trainingProgress: 6, trainingGoal: 12 } },
+    talents: [{ ...talent("Паранойя"), trainingProgress: 4, trainingGoal: 10 }],
+  });
+  assert.deepEqual([saved.characteristics.strength.trainingProgress, saved.characteristics.strength.trainingGoal], [6, 12]);
+  assert.deepEqual([saved.talents[0].trainingProgress, saved.talents[0].trainingGoal], [4, 10]);
+});
+
 test("prices the +40 skill rank as the first purchase", async () => {
   const rules = await loadRules();
   const base = rules.createCharacter();
@@ -493,6 +561,20 @@ test("splits Navigation and Operate into ground and air skills", async () => {
   assert.equal(normalized.skills.find((skill) => skill.id === "operate-ground")?.level, 2);
   assert.equal(normalized.skills.find((skill) => skill.id === "operate-air")?.level, 0);
   assert.equal(normalized.skills.some((skill) => skill.id === "navigation" || skill.id === "operate"), false);
+});
+
+test("lets new Trade specializations use a selected characteristic", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  const trade = base.skills.find((skill) => skill.id === "trade");
+  const linguistics = base.skills.find((skill) => skill.id === "linguistics");
+  assert.equal(rules.specializationCharacteristic(trade, "agility"), "agility");
+  assert.equal(rules.specializationCharacteristic(trade, "strength"), "strength");
+  assert.equal(rules.specializationCharacteristic(linguistics, "strength"), "intelligence", "other specializations keep the parent characteristic");
+
+  const customTrade = { id: "trade-smithing", label: "Ремесло: Кузнечное дело", characteristic: "strength", level: 2, custom: true, parentId: "trade" };
+  const normalized = rules.normalizeCharacter({ ...base, skills: [...base.skills, customTrade] });
+  assert.equal(normalized.skills.find((skill) => skill.id === customTrade.id)?.characteristic, "strength", "old JSON files keep the selected characteristic");
 });
 
 test("counterattack uses melee, its modifier, Expert, Shoulder to Shoulder and the -20 penalty", async () => {

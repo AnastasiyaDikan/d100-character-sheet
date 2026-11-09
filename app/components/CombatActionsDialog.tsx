@@ -12,6 +12,7 @@ import { rollDie } from "@/lib/character/dice";
 import { createCharacterThumbnail, discordIsConnected, loadDiscordSettings, sendDiscordRoll } from "@/lib/character/discord-client";
 import { hitLocationAccusative, type HitLocationResult } from "@/lib/character/hit-location";
 import { evaluateSkillCheck, successWord, type SkillCheckOutcome } from "@/lib/character/skill-check";
+import { frenzyActive, hasTalent } from "@/lib/character/talent-effects";
 import { formatWeaponDamage, selectedWeaponDamage, type WeaponDamageResult } from "@/lib/character/weapon-damage";
 import type { Character, CombatSettings, CombatSkillRank } from "@/lib/character/types";
 
@@ -27,8 +28,8 @@ type CombatRoll = SkillCheckOutcome & {
   delivery: "idle" | "sending" | "sent" | "error";
 };
 
-function Toggle({ checked, onChange, children }: { checked: boolean; onChange: (checked: boolean) => void; children: ReactNode }) {
-  return <label className="combat-toggle"><Checkbox checked={checked} onCheckedChange={(value) => onChange(value === true)} /><span>{children}</span></label>;
+function Toggle({ checked, disabled = false, onChange, children }: { checked: boolean; disabled?: boolean; onChange: (checked: boolean) => void; children: ReactNode }) {
+  return <label className={`combat-toggle ${disabled ? "disabled" : ""}`}><Checkbox checked={checked} disabled={disabled} onCheckedChange={(value) => onChange(value === true)} /><span>{children}</span></label>;
 }
 
 function RankSelector({ title, skillId, character, onChange }: {
@@ -58,6 +59,8 @@ export default function CombatActionsDialog({ character, onChange }: { character
   const [weaponError, setWeaponError] = useState("");
   const weaponPickerRef = useRef<HTMLDivElement>(null);
   const settings = character.combatSettings;
+  const hasFrenzyTalent = hasTalent(character, "Неистовство");
+  const frenzyEnabled = frenzyActive(character);
   const selectedWeapon = activeCombatWeapon(character);
   const priority = ["standard-attack", "all-out-attack", "charge", "rapid-attack", "lightning-attack", "dodge", "parry-weapon", "parry-shield", "feint"];
   const actions = COMBAT_ACTIONS.filter((action) => combatActionAvailable(character, action))
@@ -145,12 +148,17 @@ export default function CombatActionsDialog({ character, onChange }: { character
             <Toggle checked={settings.shoulderToShoulder === 10} onChange={(checked) => update({ shoulderToShoulder: checked ? 10 : 0 })}><strong>Плечом к Плечу / 2</strong><small>+10: рядом соратник без этого таланта</small></Toggle>
             <Toggle checked={settings.shoulderToShoulder === 20} onChange={(checked) => update({ shoulderToShoulder: checked ? 20 : 0 })}><strong>Плечом к Плечу</strong><small>+20: рядом соратник с этим талантом</small></Toggle>
             <Toggle checked={settings.berserkerCharge} onChange={(berserkerCharge) => update({ berserkerCharge })}><strong>Натиск Берсерка</strong><small>+30 к значению Натиска</small></Toggle>
-            <Toggle checked={settings.frenzy} onChange={(frenzy) => update({ frenzy })}><strong>Неистовство</strong><small>+10 к любой атаке и парированию оружием</small></Toggle>
+            <Toggle checked={frenzyEnabled} disabled={!hasFrenzyTalent} onChange={(frenzy) => update({ frenzy })}><strong>Неистовство</strong><small>{hasFrenzyTalent ? "Применить все эффекты таланта" : "Сначала добавьте талант в чарник"}</small></Toggle>
             <Toggle checked={settings.counterattack} onChange={(counterattack) => update({ counterattack })}><strong>Контратака</strong><small>показать реакцию после успешного Парирования</small></Toggle>
             <label className="weapon-modifier-setting"><span><strong>Модификатор оружия</strong><small>к атакам, контратаке и парированию оружием</small></span><input type="number" value={settings.weaponModifier === 0 ? "" : settings.weaponModifier} placeholder="0" onFocus={(event) => event.currentTarget.select()} onChange={(event) => update({ weaponModifier: event.target.value === "" ? 0 : Number(event.target.value) })} /></label>
             <div className="shield-setting"><Toggle checked={settings.shieldEnabled} onChange={(shieldEnabled) => update({ shieldEnabled })}><strong>Щит</strong><small>добавить его бонус к Парированию</small></Toggle><label><span>Бонус</span><input type="number" min="0" value={settings.shieldBonus === 0 ? "" : settings.shieldBonus} placeholder="0" disabled={!settings.shieldEnabled} onFocus={(event) => event.currentTarget.select()} onChange={(event) => update({ shieldBonus: event.target.value === "" ? 0 : Number(event.target.value) })} /></label></div>
             <RankSelector title="Парирование" skillId="parry" character={character} onChange={(parryRank) => update({ parryRank })} />
             <RankSelector title="Уклонение" skillId="dodge" character={character} onChange={(dodgeRank) => update({ dodgeRank })} />
+            {frenzyEnabled && <aside className="frenzy-reminder">
+              <strong>Неистовство действует</strong>
+              <span><b>+10</b> к НР, Силе, Выносливости и Силе Воли · <b>−20</b> к НС и Интеллекту.</span>
+              <span>Усталость не снижает характеристики; Парирование, отход и бегство недоступны. Персонаж невосприимчив к Страху, Подавлению и Оглушению, должен сблизиться с ближайшим противником и использовать Решительную атаку, если это возможно.</span>
+            </aside>}
             <div ref={weaponPickerRef} className={`combat-weapon-selector ${weaponPickerOpen ? "open" : ""} ${weaponError ? "has-error" : ""}`}>
               <div className="combat-weapon-summary">
                 <span><strong>Оружие для атаки</strong><small>{selectedWeapon ? `${selectedWeapon.name.trim() || "Без названия"} · ${selectedWeaponDamage(selectedWeapon) || "урон не заполнен"}` : "Оружие не выбрано"}</small></span>

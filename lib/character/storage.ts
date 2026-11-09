@@ -72,14 +72,34 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     }),
     ...rawSkills.filter((skill) => !BASE_SKILLS.some((baseSkill) => baseSkill.id === skill.id) && skill.id !== "navigation" && skill.id !== "operate"),
   ];
+  const normalizeTrainingProgress = (value: unknown) => value === null || value === undefined || value === ""
+    ? null
+    : Number.isFinite(Number(value)) ? Math.max(0, Math.min(999, Math.trunc(Number(value)))) : null;
+  const normalizeTrainingGoal = (value: unknown) => Number.isFinite(Number(value))
+    ? Math.max(1, Math.min(999, Math.trunc(Number(value))))
+    : 10;
+  const characteristics = Object.fromEntries(Object.entries(base.characteristics).map(([id, baseCharacteristic]) => {
+    const stored = raw.characteristics?.[id as keyof Character["characteristics"]];
+    return [id, {
+      ...baseCharacteristic,
+      ...(stored ?? {}),
+      trainingProgress: normalizeTrainingProgress(stored?.trainingProgress),
+      trainingGoal: normalizeTrainingGoal(stored?.trainingGoal),
+    }];
+  })) as Character["characteristics"];
+  const talents = (raw.talents ?? []).map((talent) => ({
+    ...talent,
+    trainingProgress: normalizeTrainingProgress(talent.trainingProgress),
+    trainingGoal: normalizeTrainingGoal(talent.trainingGoal),
+  }));
   const merged: Character = {
     ...base,
     ...raw,
     raceId,
     raceChoices,
-    dataRevision: 13,
+    dataRevision: 14,
     avatarCrop: raw.avatarCrop ?? base.avatarCrop,
-    characteristics: { ...base.characteristics, ...(raw.characteristics ?? {}) },
+    characteristics,
     characteristicAdjustments: { ...base.characteristicAdjustments, ...(raw.characteristicAdjustments ?? {}) },
     aptitudes: { ...base.aptitudes, ...(raw.aptitudes ?? {}) },
     racialAptitudes: { ...base.racialAptitudes, ...(raw.racialAptitudes ?? {}) },
@@ -95,6 +115,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
       ? storedWoundsOverride
       : (RACES.find((item) => item.id === raceId)?.unrestricted ? raw.woundsTotal : null),
     skills: normalizedSkills,
+    talents,
     journal: typeof raw.journal === "string" ? raw.journal : "",
     combatSettings: {
       expert: rawCombat?.expert === true,
@@ -131,12 +152,12 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
   const race = RACES.find((item) => item.id === merged.raceId);
   if (!race) return merged;
   const migrated = applyRace(merged, race, merged.raceChoices ?? {});
-  const characteristics = Object.fromEntries(Object.entries(migrated.characteristics).map(([id, value]) => {
+  const migratedCharacteristics = Object.fromEntries(Object.entries(migrated.characteristics).map(([id, value]) => {
     const legacy = raw.characteristics?.[id as keyof Character["characteristics"]] as unknown as { advances?: number } | undefined;
     const advances = legacy?.advances ?? 0;
     return [id, { ...value, advances, value: value.value + advances * 5 }];
   })) as Character["characteristics"];
-  const withProgress = { ...migrated, characteristics, dataRevision: 13 as const };
+  const withProgress = { ...migrated, characteristics: migratedCharacteristics, dataRevision: 14 as const };
   const woundsTotal = calculateRaceWounds(withProgress, race);
   return { ...withProgress, woundsTotal, woundsCurrent: woundsTotal };
 }

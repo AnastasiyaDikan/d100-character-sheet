@@ -1,4 +1,5 @@
 import { adjustedEffectiveBonus } from "./calculations";
+import { hasParanoia } from "./talent-effects";
 import type { Character } from "./types";
 
 const normalize = (value: string) => value.toLocaleLowerCase("ru").replace(/ё/g, "е");
@@ -9,5 +10,7 @@ export function hasLightningReflexes(character: Character) {
 
 export function initiativeModifier(character: Character) {
   const agilityModifier = adjustedEffectiveBonus(character, "agility");
-  return agilityModifier * (hasLightningReflexes(character) ? 2 : 1);
+  return agilityModifier * (hasLightningReflexes(character) ? 2 : 1) + (hasParanoia(character) ? 2 : 0);
 }
+
+export { hasParanoia } from "./talent-effects";

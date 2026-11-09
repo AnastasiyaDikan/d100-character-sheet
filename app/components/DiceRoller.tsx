@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DICE_SIDES, rollDie } from "@/lib/character/dice";
 import { parseDiscordWebhookUrl } from "@/lib/character/discord";
 import { createCharacterThumbnail, discordIsConnected, EMPTY_DISCORD_SETTINGS, loadDiscordSettings, saveDiscordSettings, sendDiscordRoll, type DiscordSettings } from "@/lib/character/discord-client";
-import { hasLightningReflexes, initiativeModifier } from "@/lib/character/initiative";
+import { hasLightningReflexes, hasParanoia, initiativeModifier } from "@/lib/character/initiative";
 import type { Character } from "@/lib/character/types";
 
 type DeliveryState = "idle" | "sending" | "sent" | "error";
@@ -105,7 +105,7 @@ export default function DiceRoller({ character }: { character: Character }) {
   const [delivery, setDelivery] = useState<DeliveryState>("idle");
   const [diceCount, setDiceCount] = useState(1);
   const [result, setResult] = useState<{ sides: number; rolls: number[]; total: number; serial: number } | null>(null);
-  const [initiative, setInitiative] = useState<{ die: number; modifier: number; total: number; doubled: boolean; serial: number; delivery: DeliveryState } | null>(null);
+  const [initiative, setInitiative] = useState<{ die: number; modifier: number; total: number; doubled: boolean; paranoia: boolean; serial: number; delivery: DeliveryState } | null>(null);
   const latestRoll = useRef(0);
 
   useEffect(() => {
@@ -148,11 +148,12 @@ export default function DiceRoller({ character }: { character: Character }) {
   const throwInitiative = () => {
     const die = rollDie(10);
     const doubled = hasLightningReflexes(character);
+    const paranoia = hasParanoia(character);
     const modifier = initiativeModifier(character);
     const total = die + modifier;
     const serial = Date.now() + Math.random();
     const connected = discordIsConnected(settings);
-    setInitiative({ die, modifier, total, doubled, serial, delivery: connected ? "sending" : "idle" });
+    setInitiative({ die, modifier, total, doubled, paranoia, serial, delivery: connected ? "sending" : "idle" });
     if (!connected) return;
     void createCharacterThumbnail(character).then((avatar) => sendDiscordRoll({
       webhookUrl: settings.webhookUrl,
@@ -164,6 +165,7 @@ export default function DiceRoller({ character }: { character: Character }) {
       initiativeModifier: modifier,
       initiativeTotal: total,
       initiativeDoubled: doubled,
+      initiativeParanoia: paranoia,
       embedColor: settings.color,
     })).then(() => setInitiative((current) => current?.serial === serial ? { ...current, delivery: "sent" } : current))
       .catch(() => setInitiative((current) => current?.serial === serial ? { ...current, delivery: "error" } : current));
@@ -171,8 +173,8 @@ export default function DiceRoller({ character }: { character: Character }) {
 
   const connected = discordIsConnected(settings);
   return <div className={`dice-widget ${open ? "open" : ""}`}>
-    <button className="initiative-launch" onClick={throwInitiative} aria-label="Бросить инициативу" title="Инициатива: d10 + модификатор Ловкости"><Zap /></button>
-    {initiative && <output key={initiative.serial} className="initiative-result" aria-live="polite"><small>Инициатива</small><strong>{initiative.total}</strong><span>d10: {initiative.die} + {initiative.modifier}{initiative.doubled ? " × рефлексы" : ""}</span>{initiative.delivery !== "idle" && <em className={initiative.delivery}>{initiative.delivery === "sending" ? "Discord…" : initiative.delivery === "sent" ? "Отправлено" : "Не отправлено"}</em>}</output>}
+    <button className="initiative-launch" onClick={throwInitiative} aria-label="Бросить инициативу" title="Инициатива: d10 + бонусы инициативы"><Zap /></button>
+    {initiative && <output key={initiative.serial} className="initiative-result" aria-live="polite"><small>Инициатива</small><strong>{initiative.total}</strong><span>d10: {initiative.die} + {initiative.modifier}{initiative.doubled ? " · Рефлексы" : ""}{initiative.paranoia ? " · Паранойя +2" : ""}</span>{initiative.delivery !== "idle" && <em className={initiative.delivery}>{initiative.delivery === "sending" ? "Discord…" : initiative.delivery === "sent" ? "Отправлено" : "Не отправлено"}</em>}</output>}
     {!open ? <button className={`dice-launch ${connected ? "discord-connected" : ""}`} onClick={() => setOpen(true)} aria-label="Открыть бросок кубиков" title="Бросить кубик"><Dices /></button> : <div className="dice-table" role="group" aria-label="Выбор игрового кубика">
       {result && <output key={result.serial} className="dice-result" aria-live="polite"><span><small>{result.rolls.length > 1 ? `${result.rolls.length}d${result.sides}` : `d${result.sides}`}</small><strong>{result.total}</strong></span>{result.rolls.length > 1 && <span className="dice-result-rolls">{result.rolls.join(" + ")}</span>}{delivery !== "idle" && <em className={`dice-delivery ${delivery}`}>{delivery === "sending" && <><LoaderCircle className="spin" /> Discord…</>}{delivery === "sent" && <><CheckCircle2 /> Отправлено</>}{delivery === "error" && <><AlertTriangle /> Не отправлено</>}</em>}</output>}
       {DICE_SIDES.map((sides) => <button key={sides} className={`polyhedral-die die-d${sides}`} onClick={() => throwDie(sides)} aria-label={`Бросить ${diceCount > 1 ? `${diceCount} кубов d${sides}` : `d${sides}`}`} title={`Бросить ${diceCount > 1 ? `${diceCount}d${sides}` : `d${sides}`}`}><DieIcon sides={sides} /></button>)}

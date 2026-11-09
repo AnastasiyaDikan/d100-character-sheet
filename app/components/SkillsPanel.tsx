@@ -6,10 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { experienceCost, fatigueEffect, skillThreshold } from "@/lib/character/calculations";
+import { CHARACTERISTICS } from "@/lib/character/data";
 import { rollDie } from "@/lib/character/dice";
 import { createCharacterThumbnail, discordIsConnected, loadDiscordSettings, sendDiscordRoll } from "@/lib/character/discord-client";
 import { evaluateSkillCheck, type SkillCheckOutcome } from "@/lib/character/skill-check";
-import type { Character, Skill } from "@/lib/character/types";
+import { specializationCharacteristic as selectedSpecializationCharacteristic } from "@/lib/character/skills";
+import type { Character, CharacteristicId, Skill } from "@/lib/character/types";
 
 const LEVELS = ["Know", "+10", "+20", "+30", "+40"];
 const EXPANDABLE = new Set(["common-lore", "forbidden-lore", "linguistics", "scholastic-lore", "trade"]);
@@ -19,6 +21,7 @@ export default function SkillsPanel({ character, onChange }: { character: Charac
   const [query, setQuery] = useState("");
   const [parent, setParent] = useState<Skill | null>(null);
   const [specialization, setSpecialization] = useState("");
+  const [specializationCharacteristic, setSpecializationCharacteristic] = useState<CharacteristicId>("intelligence");
   const [activeSkillId, setActiveSkillId] = useState<string | null>(null);
   const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState("");
@@ -56,12 +59,24 @@ export default function SkillsPanel({ character, onChange }: { character: Charac
     setEditingSkillId(null);
   };
 
+  const openSpecializationDialog = (skill: Skill) => {
+    setParent(skill);
+    setSpecialization("");
+    setSpecializationCharacteristic(skill.characteristic);
+  };
+
+  const closeSpecializationDialog = () => {
+    setParent(null);
+    setSpecialization("");
+    setSpecializationCharacteristic("intelligence");
+  };
+
   const addSpecialization = () => {
     if (!parent || !specialization.trim()) return;
     const next: Skill = {
       id: `${parent.id}-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`,
       label: `${parent.label}: ${specialization.trim()}`,
-      characteristic: parent.characteristic,
+      characteristic: selectedSpecializationCharacteristic(parent, specializationCharacteristic),
       level: 0,
       custom: true,
       parentId: parent.id,
@@ -70,8 +85,7 @@ export default function SkillsPanel({ character, onChange }: { character: Charac
     const insertAfter = skills.reduce((last, skill, index) => skill.id === parent.id || skill.parentId === parent.id ? index : last, -1);
     skills.splice(insertAfter + 1, 0, next);
     onChange({ ...character, skills });
-    setParent(null);
-    setSpecialization("");
+    closeSpecializationDialog();
   };
 
   const rollSkillCheck = (skill: Skill, threshold: number) => {
@@ -111,18 +125,19 @@ export default function SkillsPanel({ character, onChange }: { character: Charac
           const threshold = skillThreshold(character, skill.id);
           const currentRoll = skillRoll?.skillId === skill.id ? skillRoll : null;
           return <tr key={skill.id} className={`${skill.custom ? "custom-skill" : ""} ${fatigueEffect(character, skill.characteristic) !== "none" ? "fatigue-affected-skill" : ""}`}>
-            <td><div className="skill-name-cell">{editingSkillId === skill.id ? <input className="skill-name-edit" autoFocus value={editingLabel} onChange={(event) => setEditingLabel(event.target.value)} onBlur={() => saveEditedLabel(skill.id)} onKeyDown={(event) => { if (event.key === "Enter") saveEditedLabel(skill.id); if (event.key === "Escape") setEditingSkillId(null); }} /> : <Popover open={activeSkillId === skill.id} onOpenChange={(open) => setActiveSkillId(open ? skill.id : null)}><PopoverTrigger asChild><button className="skill-name" onDoubleClick={() => { if (skill.custom) { setEditingSkillId(skill.id); setEditingLabel(skill.label); setActiveSkillId(null); } }}>{skill.label} <small>({character.characteristics[skill.characteristic].short})</small></button></PopoverTrigger><PopoverContent side="left" align="center" sideOffset={8} className="skill-threshold-popup"><div className="skill-threshold-summary"><span>{fatigueEffect(character, skill.characteristic) !== "none" ? "Порог с усталостью" : "Порог проверки"}</span><strong>{threshold}</strong><small>{skill.label}</small><button className="skill-roll-button" onClick={() => rollSkillCheck(skill, threshold)} aria-label={`Проверить навык ${skill.label}`} title={`Бросить d100 на ${skill.label}`}><Dices /><em>d100</em></button></div>{currentRoll && <output className={`skill-roll-result ${currentRoll.passed ? "passed" : "failed"}`} aria-live="polite"><strong>{currentRoll.roll}</strong><span>{currentRoll.text}</span>{currentRoll.delivery !== "idle" && <small className={`skill-roll-delivery ${currentRoll.delivery}`}>{currentRoll.delivery === "sending" && <><LoaderCircle className="spin" /> Discord…</>}{currentRoll.delivery === "sent" && <><CheckCircle2 /> Отправлено</>}{currentRoll.delivery === "error" && <><AlertTriangle /> Не отправлено</>}</small>}</output>}</PopoverContent></Popover>}{EXPANDABLE.has(skill.id) && <button className="skill-add" title="Добавить специализацию" onClick={() => setParent(skill)}><Plus /></button>}{skill.custom && <button className="skill-delete" title="Удалить навык" onClick={() => onChange({ ...character, skills: character.skills.filter((item) => item.id !== skill.id) })}><Trash2 /></button>}</div></td>
+            <td><div className="skill-name-cell">{editingSkillId === skill.id ? <input className="skill-name-edit" autoFocus value={editingLabel} onChange={(event) => setEditingLabel(event.target.value)} onBlur={() => saveEditedLabel(skill.id)} onKeyDown={(event) => { if (event.key === "Enter") saveEditedLabel(skill.id); if (event.key === "Escape") setEditingSkillId(null); }} /> : <Popover open={activeSkillId === skill.id} onOpenChange={(open) => setActiveSkillId(open ? skill.id : null)}><PopoverTrigger asChild><button className="skill-name" onDoubleClick={() => { if (skill.custom) { setEditingSkillId(skill.id); setEditingLabel(skill.label); setActiveSkillId(null); } }}>{skill.label} <small>({character.characteristics[skill.characteristic].short})</small></button></PopoverTrigger><PopoverContent side="left" align="center" sideOffset={8} className="skill-threshold-popup"><div className="skill-threshold-summary"><span>{fatigueEffect(character, skill.characteristic) !== "none" ? "Порог с усталостью" : "Порог проверки"}</span><strong>{threshold}</strong><small>{skill.label}</small><button className="skill-roll-button" onClick={() => rollSkillCheck(skill, threshold)} aria-label={`Проверить навык ${skill.label}`} title={`Бросить d100 на ${skill.label}`}><Dices /><em>d100</em></button></div>{currentRoll && <output className={`skill-roll-result ${currentRoll.passed ? "passed" : "failed"}`} aria-live="polite"><strong>{currentRoll.roll}</strong><span>{currentRoll.text}</span>{currentRoll.delivery !== "idle" && <small className={`skill-roll-delivery ${currentRoll.delivery}`}>{currentRoll.delivery === "sending" && <><LoaderCircle className="spin" /> Discord…</>}{currentRoll.delivery === "sent" && <><CheckCircle2 /> Отправлено</>}{currentRoll.delivery === "error" && <><AlertTriangle /> Не отправлено</>}</small>}</output>}</PopoverContent></Popover>}{EXPANDABLE.has(skill.id) && <button className="skill-add" title="Добавить специализацию" onClick={() => openSpecializationDialog(skill)}><Plus /></button>}{skill.custom && <button className="skill-delete" title="Удалить навык" onClick={() => onChange({ ...character, skills: character.skills.filter((item) => item.id !== skill.id) })}><Trash2 /></button>}</div></td>
             {LEVELS.map((level, index) => <td key={level}><button className={`skill-box ${skill.level >= index + 1 ? "active" : ""}`} aria-label={`${skill.label}: ${level}`} title={index === 4 ? `Стоимость +40: ${experienceCost(character.aptitudes[skill.characteristic], 1)} опыта` : undefined} onClick={() => setLevel(skill.id, index + 1)} /></td>)}
           </tr>;
         })}</tbody>
       </table>
       {filtered.length === 0 && <p className="empty-copy">Навык не найден.</p>}
     </div>
-    <Dialog open={Boolean(parent)} onOpenChange={(open) => !open && setParent(null)}>
+    <Dialog open={Boolean(parent)} onOpenChange={(open) => !open && closeSpecializationDialog()}>
       <DialogContent className="paper-dialog">
         <DialogHeader><DialogTitle>Новая специализация</DialogTitle><DialogDescription>{parent?.label}: укажите конкретное знание, язык или ремесло.</DialogDescription></DialogHeader>
         <label className="dialog-text-field"><span>Название</span><input autoFocus value={specialization} onChange={(event) => setSpecialization(event.target.value)} onKeyDown={(event) => event.key === "Enter" && addSpecialization()} placeholder="Например: Кузнечное дело" /></label>
-        <DialogFooter><Button className="negative-button" onClick={() => setParent(null)}>Отмена</Button><Button onClick={addSpecialization}>Добавить</Button></DialogFooter>
+        {parent?.id === "trade" && <label className="dialog-select-field"><span>Характеристика ремесла</span><select value={specializationCharacteristic} onChange={(event) => setSpecializationCharacteristic(event.target.value as CharacteristicId)}>{CHARACTERISTICS.map((characteristic) => <option key={characteristic.id} value={characteristic.id}>{characteristic.label} ({characteristic.short})</option>)}</select><small>Порог нового ремесла и стоимость его развития будут рассчитываться от выбранной характеристики.</small></label>}
+        <DialogFooter><Button className="negative-button" onClick={closeSpecializationDialog}>Отмена</Button><Button onClick={addSpecialization}>Добавить</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   </section>;

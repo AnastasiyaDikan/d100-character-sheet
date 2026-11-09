@@ -30,6 +30,7 @@ export type DiscordRollRequest = {
   initiativeModifier?: number;
   initiativeTotal?: number;
   initiativeDoubled?: boolean;
+  initiativeParanoia?: boolean;
   embedColor?: string;
 };
 
@@ -176,7 +177,7 @@ export function discordMessagePayload(request: DiscordRollRequest, hasAvatar: bo
       ? {
           author: { name: characterName },
           title: "Бросок инициативы",
-          description: `d10: ${request.result} + модификатор Ловкости ${request.initiativeModifier}${request.initiativeDoubled ? " (удвоен талантом)" : ""}\n# ${request.initiativeTotal}`,
+          description: `d10: ${request.result} + бонус инициативы ${request.initiativeModifier}${request.initiativeDoubled ? " (модификатор Ловкости удвоен талантом)" : ""}${request.initiativeParanoia ? " · Паранойя +2" : ""}\n# ${request.initiativeTotal}`,
           color: customColor ?? 0x6d281f,
         }
     : request.kind === "hit-location" && request.hitLocation

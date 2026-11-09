@@ -17,6 +17,10 @@ export type Characteristic = {
   short: string;
   value: number;
   advances: number;
+  /** Текущий прогресс незавершённой ингейм-тренировки. */
+  trainingProgress?: number | null;
+  /** Цель тренировки; по умолчанию 10. */
+  trainingGoal?: number;
 };
 
 export type Skill = {
@@ -34,6 +38,10 @@ export type Talent = {
   properties: string;
   requirements: string;
   source: "talent" | "race";
+  /** Текущий прогресс незавершённой ингейм-тренировки. */
+  trainingProgress?: number | null;
+  /** Цель тренировки; по умолчанию 10. */
+  trainingGoal?: number;
 };
 
 export type Armor = {

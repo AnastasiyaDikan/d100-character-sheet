@@ -1,5 +1,6 @@
 import { adjustedCharacteristicValue, characteristicAdjustment, characteristicCheckValue, effectiveBonus } from "./calculations";
 import type { SkillCheckOutcome } from "./skill-check";
+import { frenzyActive, frenzyCharacteristicAdjustment, hasTalent } from "./talent-effects";
 import type { Character, CharacteristicId, CombatSkillRank } from "./types";
 
 export type CombatCheckKind = "none" | "melee" | "shooting" | "both" | "parry-weapon" | "parry-shield" | "dodge" | "strength" | "skill" | "counterattack" | "rapid-attack" | "lightning-attack";
@@ -50,14 +51,8 @@ export const COMBAT_ACTIONS: CombatAction[] = [
 
 export const COMBAT_RANK_LABELS = ["Know", "+10", "+20", "+30", "+40"] as const;
 
-const normalizeTalentName = (value: string) => value.toLocaleLowerCase("ru").replace(/ё/g, "е").replace(/\s+/g, " ").trim();
-
 export function hasCombatTalent(character: Character, talentName: string) {
-  const expected = normalizeTalentName(talentName);
-  return character.talents.some((talent) => {
-    const actual = normalizeTalentName(talent.name);
-    return actual === expected || actual.startsWith(`${expected} (`) || actual.startsWith(`${expected}:`);
-  });
+  return hasTalent(character, talentName);
 }
 
 export function combatActionAvailable(character: Character, action: CombatAction) {
@@ -98,15 +93,16 @@ function characteristicBase(character: Character, id: CharacteristicId) {
   const value = adjustedCharacteristicValue(character, id);
   const bonus = effectiveBonus(character, id);
   const adjustment = characteristicAdjustment(character, id);
+  const frenzyAdjustment = frenzyCharacteristicAdjustment(character, id);
   return {
     value: value + bonus,
-    explanation: `${character.characteristics[id].short} ${value} + исходный модификатор ${bonus}${adjustment ? `; временный эффект ${adjustment > 0 ? "+" : ""}${adjustment}` : ""}`,
+    explanation: `${character.characteristics[id].short} ${value} + исходный модификатор ${bonus}${adjustment ? `; временный эффект ${adjustment > 0 ? "+" : ""}${adjustment}` : ""}${frenzyAdjustment ? `; Неистовство ${frenzyAdjustment > 0 ? "+" : ""}${frenzyAdjustment}` : ""}`,
   };
 }
 
 export function sharedWeaponBonus(character: Character) {
   const settings = character.combatSettings;
-  return (settings.expert ? 10 : 0) + settings.shoulderToShoulder + (settings.frenzy ? 10 : 0);
+  return (settings.expert ? 10 : 0) + settings.shoulderToShoulder;
 }
 
 function actionBonus(character: Character, action: CombatAction) {
@@ -126,7 +122,6 @@ function attackValue(character: Character, id: "melee" | "shooting", action: Com
   const additions = [
     settings.expert ? "Эксперт +10" : "",
     settings.shoulderToShoulder ? `Плечом к Плечу +${settings.shoulderToShoulder}` : "",
-    settings.frenzy ? "Неистовство +10" : "",
     bonus.fixed ? action.id === "charge" && settings.berserkerCharge ? "Натиск Берсерка +30" : `${action.action} +${bonus.fixed}` : "",
     bonus.aimed ? `Прицеливание +${bonus.aimed}` : "",
     action.usesWeapon && settings.weaponModifier ? `Оружие ${settings.weaponModifier >= 0 ? "+" : ""}${settings.weaponModifier}` : "",
@@ -143,6 +138,12 @@ function attackValue(character: Character, id: "melee" | "shooting", action: Com
 }
 
 export function combatActionValues(character: Character, action: CombatAction): CombatActionValue[] {
+  if (frenzyActive(character) && (action.check === "parry-weapon" || action.check === "parry-shield")) {
+    return [{ label: "Недоступно", value: null, explanation: "Неистовство запрещает Парирование до конца боя." }];
+  }
+  if (frenzyActive(character) && action.id === "disengage") {
+    return [{ label: "Недоступно", value: null, explanation: "Неистовство не позволяет отступать или спасаться бегством." }];
+  }
   if (action.check === "rapid-attack" || action.check === "lightning-attack") {
     const melee = characteristicCheckValue(character, "melee");
     const settings = character.combatSettings;
@@ -161,6 +162,7 @@ export function combatActionValues(character: Character, action: CombatAction): 
         shoulder ? `Плечом к Плечу +${shoulder}` : "",
         aimed ? `Прицеливание +${aimed}` : "",
         weaponModifier ? `Оружие ${weaponModifier >= 0 ? "+" : ""}${weaponModifier}` : "",
+        frenzyActive(character) ? "Неистовство: НР +10" : "",
         penalty ? "Молниеносная атака -10" : "",
         `не более ${maximumExtraAttacks} дополнительных атак`,
       ].filter(Boolean).join("; "),
@@ -175,7 +177,7 @@ export function combatActionValues(character: Character, action: CombatAction): 
     return [{
       label: "НР",
       value: characteristic + modifier + expert + shoulder + weaponModifier - 20,
-      explanation: [`НР ${characteristic}`, `модификатор ${modifier}`, expert ? "Эксперт +10" : "", shoulder ? `Плечом к Плечу +${shoulder}` : "", weaponModifier ? `Оружие ${weaponModifier >= 0 ? "+" : ""}${weaponModifier}` : "", "Контратака -20"].filter(Boolean).join("; "),
+      explanation: [`НР ${characteristic}`, `модификатор ${modifier}`, frenzyActive(character) ? "Неистовство: НР +10" : "", expert ? "Эксперт +10" : "", shoulder ? `Плечом к Плечу +${shoulder}` : "", weaponModifier ? `Оружие ${weaponModifier >= 0 ? "+" : ""}${weaponModifier}` : "", "Контратака -20"].filter(Boolean).join("; "),
     }];
   }
   if (action.check === "melee") return [attackValue(character, "melee", action)];

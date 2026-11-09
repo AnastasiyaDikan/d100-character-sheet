@@ -1,4 +1,5 @@
 import type { Character, CharacteristicId, HitZone } from "./types";
+import { frenzyActive, frenzyCharacteristicAdjustment } from "./talent-effects";
 
 export const EXPERIENCE_COSTS = {
   twoAptitudes: [100, 200, 400, 800, 1600],
@@ -80,6 +81,7 @@ export type FatigueEffect = "none" | "halved" | "zero";
  * Supernatural effects deliberately do not delay the penalty.
  */
 export function fatigueEffect(character: Character, id: CharacteristicId): FatigueEffect {
+  if (frenzyActive(character)) return "none";
   const fatigue = Math.max(0, character.fatigueCurrent ?? 0);
   if (fatigue === 0) return "none";
   const value = characteristicValue(character, id);
@@ -113,7 +115,7 @@ export function characteristicAdjustment(character: Character, id: Characteristi
 
 /** Значение характеристики после усталости и временного ситуационного модификатора. */
 export function adjustedCharacteristicValue(character: Character, id: CharacteristicId) {
-  return Math.max(0, fatiguedCharacteristicValue(character, id) + characteristicAdjustment(character, id));
+  return Math.max(0, fatiguedCharacteristicValue(character, id) + characteristicAdjustment(character, id) + frenzyCharacteristicAdjustment(character, id));
 }
 
 /**
@@ -131,7 +133,7 @@ export function adjustedEffectiveBonus(character: Character, id: CharacteristicI
 
 /** Временный эффект без штрафа усталости — для самого порога Усталости. */
 export function adjustedUnfatiguedEffectiveBonus(character: Character, id: CharacteristicId) {
-  const value = Math.max(0, characteristicValue(character, id) + characteristicAdjustment(character, id));
+  const value = Math.max(0, characteristicValue(character, id) + characteristicAdjustment(character, id) + frenzyCharacteristicAdjustment(character, id));
   return applySupernatural(character, id, Math.floor(value / 10));
 }
 

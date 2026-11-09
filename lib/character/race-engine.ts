@@ -87,7 +87,7 @@ export function applyRace(character: Character, race: Race, choices: Record<stri
   }])) as Character["characteristics"];
   const traitDefinitions = [...(race.traits ?? []), ...effects.flatMap((effect) => effect.traits ?? [])];
   const uniqueTraits = [...new Map(traitDefinitions.map((trait) => [trait.name, trait])).values()];
-  const racialTraits: Talent[] = uniqueTraits.map((trait) => ({ ...trait, id: uid("race"), source: "race" }));
+  const racialTraits: Talent[] = uniqueTraits.map((trait) => ({ ...trait, id: uid("race"), source: "race", trainingProgress: null, trainingGoal: 10 }));
   const corruptionFromChoice = effects.findLast((effect) => effect.corruption !== undefined)?.corruption;
   let next: Character = {
     ...character,
