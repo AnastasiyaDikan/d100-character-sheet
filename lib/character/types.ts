@@ -19,8 +19,8 @@ export type Characteristic = {
   advances: number;
   /** Текущий прогресс незавершённой ингейм-тренировки. */
   trainingProgress?: number | null;
-  /** Цель тренировки; по умолчанию 10. */
-  trainingGoal?: number;
+  /** Уже полученная постоянная прибавка за завершённые ингейм-тренировки. */
+  trainingBonus?: number;
 };
 
 export type Skill = {
@@ -30,6 +30,10 @@ export type Skill = {
   level: number;
   custom?: boolean;
   parentId?: string;
+  /** Текущий прогресс незавершённой ингейм-тренировки. */
+  trainingProgress?: number | null;
+  /** Уже полученная постоянная прибавка за завершённые ингейм-тренировки. */
+  trainingBonus?: number;
 };
 
 export type Talent = {
@@ -38,10 +42,6 @@ export type Talent = {
   properties: string;
   requirements: string;
   source: "talent" | "race";
-  /** Текущий прогресс незавершённой ингейм-тренировки. */
-  trainingProgress?: number | null;
-  /** Цель тренировки; по умолчанию 10. */
-  trainingGoal?: number;
 };
 
 export type Armor = {

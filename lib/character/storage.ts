@@ -1,6 +1,8 @@
 import type { Character } from "./types";
 import { BASE_SKILLS, createCharacter, RACES } from "./data";
 import { applyRace, calculateRaceWounds } from "./race-engine";
+import { normalizeTrainingState } from "./training";
+import type { Skill, Talent } from "./types";
 
 const DB_NAME = "d100-character-sheet";
 const STORE = "characters";
@@ -61,43 +63,44 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     "navigation-ground": "navigation",
     "operate-ground": "operate",
   };
+  type LegacyTraining = { trainingProgress?: unknown; trainingBonus?: unknown; trainingGoal?: unknown };
+  const normalizeSkillTraining = (skill: Skill & LegacyTraining): Skill => {
+    const { trainingGoal: _legacyGoal, ...cleaned } = skill;
+    return { ...cleaned, ...normalizeTrainingState(skill.trainingProgress, skill.trainingBonus) };
+  };
   const normalizedSkills = [
     ...BASE_SKILLS.map((baseSkill) => {
       const legacyId = legacySkillIds[baseSkill.id];
       const stored = rawSkills.find((skill) => skill.id === baseSkill.id)
         ?? (legacyId ? rawSkills.find((skill) => skill.id === legacyId) : undefined);
-      return stored
-        ? { ...stored, id: baseSkill.id, label: baseSkill.label, characteristic: baseSkill.characteristic }
-        : { ...baseSkill };
+      const normalized = normalizeSkillTraining((stored ?? baseSkill) as Skill & LegacyTraining);
+      return { ...normalized, id: baseSkill.id, label: baseSkill.label, characteristic: baseSkill.characteristic };
     }),
-    ...rawSkills.filter((skill) => !BASE_SKILLS.some((baseSkill) => baseSkill.id === skill.id) && skill.id !== "navigation" && skill.id !== "operate"),
+    ...rawSkills
+      .filter((skill) => !BASE_SKILLS.some((baseSkill) => baseSkill.id === skill.id) && skill.id !== "navigation" && skill.id !== "operate")
+      .map((skill) => normalizeSkillTraining(skill as Skill & LegacyTraining)),
   ];
-  const normalizeTrainingProgress = (value: unknown) => value === null || value === undefined || value === ""
-    ? null
-    : Number.isFinite(Number(value)) ? Math.max(0, Math.min(999, Math.trunc(Number(value)))) : null;
-  const normalizeTrainingGoal = (value: unknown) => Number.isFinite(Number(value))
-    ? Math.max(1, Math.min(999, Math.trunc(Number(value))))
-    : 10;
   const characteristics = Object.fromEntries(Object.entries(base.characteristics).map(([id, baseCharacteristic]) => {
     const stored = raw.characteristics?.[id as keyof Character["characteristics"]];
+    const legacyStored = (stored ?? {}) as typeof baseCharacteristic & LegacyTraining;
+    const { trainingGoal: _legacyGoal, ...cleanedStored } = legacyStored;
     return [id, {
       ...baseCharacteristic,
-      ...(stored ?? {}),
-      trainingProgress: normalizeTrainingProgress(stored?.trainingProgress),
-      trainingGoal: normalizeTrainingGoal(stored?.trainingGoal),
+      ...cleanedStored,
+      ...normalizeTrainingState(legacyStored.trainingProgress, legacyStored.trainingBonus),
     }];
   })) as Character["characteristics"];
-  const talents = (raw.talents ?? []).map((talent) => ({
-    ...talent,
-    trainingProgress: normalizeTrainingProgress(talent.trainingProgress),
-    trainingGoal: normalizeTrainingGoal(talent.trainingGoal),
-  }));
+  const talents = (raw.talents ?? []).map((talent) => {
+    const legacy = talent as Talent & LegacyTraining;
+    const { trainingProgress: _progress, trainingBonus: _bonus, trainingGoal: _goal, ...cleaned } = legacy;
+    return cleaned as Talent;
+  });
   const merged: Character = {
     ...base,
     ...raw,
     raceId,
     raceChoices,
-    dataRevision: 14,
+    dataRevision: 15,
     avatarCrop: raw.avatarCrop ?? base.avatarCrop,
     characteristics,
     characteristicAdjustments: { ...base.characteristicAdjustments, ...(raw.characteristicAdjustments ?? {}) },
@@ -157,7 +160,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     const advances = legacy?.advances ?? 0;
     return [id, { ...value, advances, value: value.value + advances * 5 }];
   })) as Character["characteristics"];
-  const withProgress = { ...migrated, characteristics: migratedCharacteristics, dataRevision: 14 as const };
+  const withProgress = { ...migrated, characteristics: migratedCharacteristics, dataRevision: 15 as const };
   const woundsTotal = calculateRaceWounds(withProgress, race);
   return { ...withProgress, woundsTotal, woundsCurrent: woundsTotal };
 }

@@ -10,6 +10,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import AvatarEditor from "./AvatarEditor";
@@ -21,18 +22,18 @@ import SkillsPanel from "./SkillsPanel";
 import TalentCatalogDialog from "./TalentCatalogDialog";
 import TutorialGuide from "./TutorialGuide";
 import { CHARACTERISTICS, createCharacter, RACES } from "@/lib/character/data";
-import { adjustedEffectiveBonus, bonus, carrying, characteristicAdjustment, characteristicCheckValue, effectiveBonus, EXPERIENCE_COSTS, fatigueEffect, fatiguedCharacteristicValue, fatigueThreshold, movement, recordedSpentExperience, skillThreshold, spentExperience, supernaturalBonus, supernaturalMultiplier } from "@/lib/character/calculations";
+import { adjustedEffectiveBonus, bonus, carrying, characteristicAdjustment, characteristicCheckValue, characteristicTrainingBonus, characteristicValue, effectiveBonus, EXPERIENCE_COSTS, fatigueEffect, fatiguedCharacteristicValue, fatigueThreshold, movement, recordedSpentExperience, spentExperience, supernaturalBonus, supernaturalMultiplier } from "@/lib/character/calculations";
 import { applyAptitudeCharacteristics, applyRace as applyRaceToCharacter, beginIndependentAptitudeDistribution, calculateNaturalArmor, calculateRaceWounds, independentAptitudeBudget } from "@/lib/character/race-engine";
 import { rollDie } from "@/lib/character/dice";
 import { createCharacterThumbnail, discordIsConnected, loadDiscordSettings, sendDiscordRoll } from "@/lib/character/discord-client";
 import { evaluateSkillCheck, type SkillCheckOutcome } from "@/lib/character/skill-check";
 import { frenzyCharacteristicAdjustment } from "@/lib/character/talent-effects";
+import { applyTrainingProgress, TRAINING_GOAL } from "@/lib/character/training";
 import { formatWeaponDamage, rollWeaponDamage, type WeaponDamageResult } from "@/lib/character/weapon-damage";
 import { deleteAutosave, downloadCharacter, loadAutosave, normalizeCharacter, saveAutosave } from "@/lib/character/storage";
 import { FOLDER_AUTOSAVE_INTERVAL_MS, folderBindingDetails, saveCharacterToFolder, saveFolderAutosave } from "@/lib/character/file-storage";
 import type { Armor, Character, CharacteristicId, HitZone, InventoryItem, Race, Talent, Weapon } from "@/lib/character/types";
 
-const SKILL_LEVELS = ["Know", "+10", "+20", "+30", "+40"];
 const ZONES: Array<{ id: HitZone; short: string; label: string }> = [
   { id: "head", short: "Г", label: "Голова" },
   { id: "rightArm", short: "ПР", label: "Правая рука" },
@@ -92,7 +93,7 @@ function StartScreen({ autosave, onNew, onLoad, onRestore, onDeleteAutosave }: {
         <label className="load-button"><FileUp /> Загрузить персонажа<input type="file" accept="application/json,.json" onChange={onLoad} /></label>
       </div>
       {autosave && <div className="autosave-card"><div><span>Найдено автосохранение</span><strong>{autosave.name || "Безымянный персонаж"}</strong><time>{new Date(autosave.savedAt).toLocaleString("ru-RU")}</time></div><div className="autosave-actions"><Button size="sm" onClick={onRestore}><RotateCcw /> Восстановить</Button><Button size="icon-sm" variant="ghost" aria-label="Удалить автосохранение" onClick={onDeleteAutosave}><Trash2 /></Button></div></div>}
-      <p className="version">Character Sheet v0.21.1</p>
+      <p className="version">Character Sheet v0.21.2</p>
     </section>
   </main>;
 }
@@ -127,6 +128,8 @@ function CharacteristicCard({ character, id, onChange }: { character: Character;
   type CharacteristicRoll = SkillCheckOutcome & { serial: number; delivery: "idle" | "sending" | "sent" | "error" };
   const [check, setCheck] = useState<CharacteristicRoll | null>(null);
   const item = character.characteristics[id];
+  const totalValue = characteristicValue(character, id);
+  const inGameTraining = characteristicTrainingBonus(character, id);
   const fatiguedValue = fatiguedCharacteristicValue(character, id);
   const originalBonus = bonus(character, id);
   const effectiveModifier = effectiveBonus(character, id);
@@ -141,6 +144,10 @@ function CharacteristicCard({ character, id, onChange }: { character: Character;
     ? `${originalBonus}×${multiplier}`
     : additive > 0 ? `${originalBonus}+${additive}` : "";
   const updateItem = (patch: Partial<typeof item>) => onChange({ ...character, characteristics: { ...character.characteristics, [id]: { ...item, ...patch } } });
+  const updateTraining = (rawValue: string) => {
+    const next = rawValue === "" ? null : Number(rawValue);
+    updateItem(applyTrainingProgress(inGameTraining, next));
+  };
   const rollCharacteristic = () => {
     const result = rollDie(100);
     const serial = Date.now() + Math.random();
@@ -161,32 +168,13 @@ function CharacteristicCard({ character, id, onChange }: { character: Character;
     })).then(() => setCheck((current) => current?.serial === serial ? { ...current, delivery: "sent" } : current))
       .catch(() => setCheck((current) => current?.serial === serial ? { ...current, delivery: "error" } : current));
   };
-  return <article className={`characteristic-card ${effect !== "none" ? `fatigue-affected fatigue-${effect}` : ""} ${adjustment > 0 ? "characteristic-buffed" : adjustment < 0 ? "characteristic-debuffed" : ""} ${frenzyAdjustment ? "frenzy-adjusted" : ""}`}><header><span className="characteristic-name">{item.label}<button type="button" className="characteristic-roll-button" aria-label={`Проверка характеристики: ${item.label}`} title={`Бросить d100 против ${threshold}`} onClick={rollCharacteristic}><Dices /></button></span><abbr title={item.label}>{item.short}</abbr></header><div className="characteristic-body">
-    <label className="characteristic-value"><span>Значение</span><span className="characteristic-input-wrap"><input type="number" min="0" value={item.value === 0 ? "" : item.value} placeholder="0" onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateItem({ value: event.target.value === "" ? 0 : Number(event.target.value) })} />{effect !== "none" && <span className="fatigue-value-card" aria-live="polite"><small>{effect === "zero" ? "Истощение" : "Усталость"}</small><strong>{fatiguedValue}</strong></span>}</span></label>
+  return <article className={`characteristic-card ${effect !== "none" ? `fatigue-affected fatigue-${effect}` : ""} ${adjustment > 0 ? "characteristic-buffed" : adjustment < 0 ? "characteristic-debuffed" : ""} ${frenzyAdjustment ? "frenzy-adjusted" : ""}`}><header><span className="characteristic-name"><Popover><PopoverTrigger asChild><button type="button" className="characteristic-name-button">{item.label}</button></PopoverTrigger><PopoverContent side="left" align="center" sideOffset={8} className="characteristic-breakdown-popup"><strong>{item.label}</strong><dl><div><dt>Базовое значение</dt><dd>{item.value}</dd></div><div><dt>Прокачано ингеймово</dt><dd>+{inGameTraining}</dd></div><div><dt>Итоговое значение</dt><dd>{totalValue}</dd></div></dl><small>Каждые заполненные 10 отметок дают постоянный +1.</small></PopoverContent></Popover><button type="button" className="characteristic-roll-button" aria-label={`Проверка характеристики: ${item.label}`} title={`Бросить d100 против ${threshold}`} onClick={rollCharacteristic}><Dices /></button></span><abbr title={item.label}>{item.short}</abbr></header><div className="characteristic-body">
+    <label className="characteristic-value"><span>Значение</span><span className="characteristic-input-wrap"><input type="number" min="0" value={totalValue === 0 ? "" : totalValue} placeholder="0" onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateItem({ value: Math.max(0, (event.target.value === "" ? 0 : Number(event.target.value)) - inGameTraining) })} />{effect !== "none" && <span className="fatigue-value-card" aria-live="polite"><small>{effect === "zero" ? "Истощение" : "Усталость"}</small><strong>{fatiguedValue}</strong></span>}</span></label>
     <label className={`characteristic-adjustment ${adjustment > 0 ? "buff" : adjustment < 0 ? "debuff" : ""}`} title="Временный бонус или штраф. Например: -20 или 30"><span>Баф / штраф</span><input type="number" step="10" value={adjustment === 0 ? "" : adjustment} placeholder="±0" onFocus={(event) => event.currentTarget.select()} onChange={(event) => onChange({ ...character, characteristicAdjustments: { ...character.characteristicAdjustments, [id]: event.target.value === "" ? 0 : Number(event.target.value) } })} /></label>
     <span className="bonus-pill" title={effect !== "none" ? "В проверке сохраняется исходный бонус; производные показатели пересчитываются по сниженному значению" : supernaturalFormula ? `Сверхъестественная характеристика: ${supernaturalFormula}` : undefined}>Бонус {effectiveModifier}{supernaturalFormula ? ` (${supernaturalFormula})` : ""}<small>Проверка {threshold}{derivedModifier !== effectiveModifier ? ` · производный ${derivedModifier}` : ""}{frenzyAdjustment ? ` · Неистовство ${frenzyAdjustment > 0 ? "+" : ""}${frenzyAdjustment}` : ""}</small></span>
-    <label className={`characteristic-training ${(item.trainingProgress ?? 0) > 0 ? "active" : ""}`}><span>Тренировка</span><span className="training-fraction"><input type="number" min="0" max="999" value={item.trainingProgress ?? ""} placeholder="—" aria-label={`Прогресс тренировки: ${item.label}`} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateItem({ trainingProgress: event.target.value === "" ? null : Math.max(0, Math.min(999, Number(event.target.value))) })} /><i>/</i><input type="number" min="1" max="999" value={item.trainingGoal ?? 10} aria-label={`Цель тренировки: ${item.label}`} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateItem({ trainingGoal: event.target.value === "" ? 10 : Math.max(1, Math.min(999, Number(event.target.value))) })} /></span></label>
+    <label className={`characteristic-training ${(item.trainingProgress ?? 0) > 0 ? "active" : ""}`}><span>Прокачка</span><span className="training-fraction"><input type="number" min="0" max={TRAINING_GOAL} value={item.trainingProgress ?? ""} placeholder="—" aria-label={`Прогресс прокачки: ${item.label}`} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateTraining(event.target.value)} /><i>/</i><b aria-label={`Фиксированная цель: ${TRAINING_GOAL}`}>{TRAINING_GOAL}</b></span></label>
     <div className="advance-vertical" aria-label={`Развитие: ${item.advances} из 5`}>{[1, 2, 3, 4, 5].map((step) => <button key={step} className={step <= item.advances ? "active" : ""} aria-label={`${step} ступень развития`} onClick={() => { const next = item.advances === step ? step - 1 : step; updateItem({ advances: next, value: Math.max(0, item.value + (next - item.advances) * 5) }); }} />)}</div>
   </div>{check && <output className={`characteristic-roll-result ${check.passed ? "passed" : "failed"}`} aria-live="polite"><strong>{check.roll}</strong><span>{check.text}</span>{check.delivery !== "idle" && <small className={check.delivery}>{check.delivery === "sending" && <><LoaderCircle className="spin" /> Discord…</>}{check.delivery === "sent" && <><CheckCircle2 /> Отправлено</>}{check.delivery === "error" && <><AlertTriangle /> Не отправлено</>}</small>}</output>}</article>;
-}
-
-function SkillsTable({ character, onChange }: { character: Character; onChange: (character: Character) => void }) {
-  const [activeSkill, setActiveSkill] = useState<string | null>(null);
-  const setLevel = (skillId: string, level: number) => onChange({ ...character, skills: character.skills.map((skill) => skill.id === skillId ? { ...skill, level: skill.level === level ? level - 1 : level } : skill) });
-  return <div className="skills-wrap"><table className="skills-table"><thead><tr><th>Навык</th>{SKILL_LEVELS.map((level) => <th key={level}>{level}</th>)}</tr></thead><tbody>{character.skills.map((skill) => <tr key={skill.id}><td><button onClick={() => setActiveSkill(activeSkill === skill.id ? null : skill.id)}>{skill.label} <small>({character.characteristics[skill.characteristic].short})</small></button></td>{SKILL_LEVELS.map((_, index) => <td key={index}><button className={`skill-box ${skill.level >= index + 1 ? "active" : ""}`} aria-label={`${skill.label}: ${SKILL_LEVELS[index]}`} onClick={() => setLevel(skill.id, index + 1)} /></td>)}</tr>)}</tbody></table>{activeSkill && <div className="skill-result"><span>Порог проверки</span><strong>{skillThreshold(character, activeSkill)}</strong></div>}</div>;
-}
-
-function TrainingFraction({ label, progress, goal, onChange }: {
-  label: string;
-  progress: number | null | undefined;
-  goal: number | undefined;
-  onChange: (progress: number | null, goal: number) => void;
-}) {
-  const normalizedGoal = goal ?? 10;
-  return <label className={`training-fraction-control ${(progress ?? 0) > 0 ? "active" : ""}`} title="Прогресс ингейм-тренировки">
-    <span>Прокачка</span>
-    <span className="training-fraction"><input type="number" min="0" max="999" value={progress ?? ""} placeholder="—" aria-label={`Прогресс тренировки: ${label}`} onFocus={(event) => event.currentTarget.select()} onChange={(event) => onChange(event.target.value === "" ? null : Math.max(0, Math.min(999, Number(event.target.value))), normalizedGoal)} /><i>/</i><input type="number" min="1" max="999" value={normalizedGoal} aria-label={`Цель тренировки: ${label}`} onFocus={(event) => event.currentTarget.select()} onChange={(event) => onChange(progress ?? null, event.target.value === "" ? 10 : Math.max(1, Math.min(999, Number(event.target.value))))} /></span>
-  </label>;
 }
 
 function TalentPanel({ character, onChange }: { character: Character; onChange: (character: Character) => void }) {
@@ -206,14 +194,14 @@ function TalentPanel({ character, onChange }: { character: Character; onChange: 
     if (!draft.name.trim()) return;
     const talents = editingId
       ? character.talents.map((item) => item.id === editingId ? { ...item, ...draft } : item)
-      : [...character.talents, { id: uid("talent"), ...draft, source: "talent" as const, trainingProgress: null, trainingGoal: 10 }];
+      : [...character.talents, { id: uid("talent"), ...draft, source: "talent" as const }];
     onChange({ ...character, talents });
     closeEditor();
   };
   return <section className="panel talents-panel" data-tutorial="talents">
     <div className="section-heading"><h2>Таланты и черты</h2><div className="talent-heading-actions"><Button size="xs" variant="ghost" onClick={() => setCatalogOpen(true)}><BookOpen /> Справочник</Button><Button size="icon-xs" variant="ghost" onClick={() => openEditor()} aria-label="Добавить талант вручную"><Plus /></Button></div></div>
     <label className="search-field"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по названию…" /></label>
-    <div className="talent-scroll">{filtered.length === 0 ? <p className="empty-copy">Пока нет подходящих записей.</p> : <Accordion type="multiple">{filtered.map((talent) => <AccordionItem value={talent.id} key={talent.id} className="talent-card"><AccordionTrigger><span>{talent.name}<small>{talent.source === "race" ? "Расовая черта" : "Талант"}</small></span></AccordionTrigger><TrainingFraction label={talent.name} progress={talent.trainingProgress} goal={talent.trainingGoal} onChange={(trainingProgress, trainingGoal) => onChange({ ...character, talents: character.talents.map((item) => item.id === talent.id ? { ...item, trainingProgress, trainingGoal } : item) })} /><AccordionContent><p><strong>Свойства:</strong> {talent.properties || "—"}</p><p><strong>Требования:</strong> {talent.requirements || "—"}</p>{talent.source !== "race" && <div className="talent-card-actions"><Button size="xs" variant="ghost" onClick={() => openEditor(talent)}><Pencil /> Изменить</Button><Button size="xs" variant="ghost" onClick={() => onChange({ ...character, talents: character.talents.filter((item) => item.id !== talent.id) })}><Trash2 /> Удалить</Button></div>}</AccordionContent></AccordionItem>)}</Accordion>}</div>
+    <div className="talent-scroll">{filtered.length === 0 ? <p className="empty-copy">Пока нет подходящих записей.</p> : <Accordion type="multiple">{filtered.map((talent) => <AccordionItem value={talent.id} key={talent.id} className="talent-card"><AccordionTrigger><span>{talent.name}<small>{talent.source === "race" ? "Расовая черта" : "Талант"}</small></span></AccordionTrigger><AccordionContent><p><strong>Свойства:</strong> {talent.properties || "—"}</p><p><strong>Требования:</strong> {talent.requirements || "—"}</p>{talent.source !== "race" && <div className="talent-card-actions"><Button size="xs" variant="ghost" onClick={() => openEditor(talent)}><Pencil /> Изменить</Button><Button size="xs" variant="ghost" onClick={() => onChange({ ...character, talents: character.talents.filter((item) => item.id !== talent.id) })}><Trash2 /> Удалить</Button></div>}</AccordionContent></AccordionItem>)}</Accordion>}</div>
     <Dialog open={adding} onOpenChange={(open) => { if (!open) closeEditor(); }}><DialogContent className="paper-dialog"><DialogHeader><DialogTitle>{editingId ? "Изменить талант" : "Новый талант"}</DialogTitle><DialogDescription>{editingId ? "Исправьте название, свойства или требования пользовательского таланта." : "Добавьте свойства и требования — длинный текст будет скрыт в карточке."}</DialogDescription></DialogHeader><Field label="Название" value={draft.name} onChange={(name) => setDraft({ ...draft, name })} /><Field label="Свойства" value={draft.properties} onChange={(properties) => setDraft({ ...draft, properties })} multiline /><Field label="Требования" value={draft.requirements} onChange={(requirements) => setDraft({ ...draft, requirements })} multiline /><DialogFooter><Button variant="outline" onClick={closeEditor}>Отмена</Button><Button onClick={saveTalent}>Сохранить</Button></DialogFooter></DialogContent></Dialog>
     <TalentCatalogDialog open={catalogOpen} onOpenChange={setCatalogOpen} existingTalents={character.talents} onImport={(talent) => {
       const normalizedName = talent.name.toLocaleLowerCase("ru").replace(/ё/g, "е");
@@ -222,7 +210,7 @@ function TalentPanel({ character, onChange }: { character: Character; onChange: 
         ...character,
         talents: existingTalent
           ? character.talents.map((item) => item.id === existingTalent.id ? { ...item, ...talent } : item)
-          : [...character.talents, { ...talent, id: uid("talent"), source: "talent", trainingProgress: null, trainingGoal: 10 }],
+          : [...character.talents, { ...talent, id: uid("talent"), source: "talent" }],
       });
     }} />
   </section>;
@@ -248,7 +236,7 @@ function FrontPage({ character, onChange, onRaceOpen }: { character: Character; 
     ? independentAptitudeBudget(currentRace)
     : currentRace.aptitudeBudget;
   const activeCharacteristicTrainings = CHARACTERISTICS
-    .map(({ id, label }) => ({ id, label, progress: character.characteristics[id].trainingProgress ?? 0, goal: character.characteristics[id].trainingGoal ?? 10 }))
+    .map(({ id, label }) => ({ id, label, progress: character.characteristics[id].trainingProgress ?? 0, bonus: character.characteristics[id].trainingBonus ?? 0 }))
     .filter((item) => item.progress > 0);
   const aptitudesDirty = CHARACTERISTICS.some(({ id }) => character.aptitudes[id] !== (character.appliedAptitudes?.[id] ?? character.racialAptitudes[id]));
   const update = <K extends keyof Character>(key: K, value: Character[K]) => onChange({ ...character, [key]: value });
@@ -278,7 +266,7 @@ function FrontPage({ character, onChange, onRaceOpen }: { character: Character; 
           }} />;
         })}</div></div>)}</div>
       </section>
-      <section className="panel characteristics-panel" data-tutorial="characteristics"><div className="section-heading"><h2>Характеристики</h2><span>● = +5</span></div>{activeCharacteristicTrainings.length > 0 && <div className="characteristic-training-summary"><strong>Сейчас тренируется:</strong>{activeCharacteristicTrainings.map((item) => <span key={item.id}>{item.label} <b>{item.progress}/{item.goal}</b></span>)}</div>}<div className="characteristics-grid">{CHARACTERISTICS.map(({ id }) => <CharacteristicCard key={id} id={id} character={character} onChange={onChange} />)}</div></section>
+      <section className="panel characteristics-panel" data-tutorial="characteristics"><div className="section-heading"><h2>Характеристики</h2><span>● = +5</span></div>{activeCharacteristicTrainings.length > 0 && <div className="characteristic-training-summary"><strong>Сейчас тренируется:</strong>{activeCharacteristicTrainings.map((item) => <span key={item.id}>{item.label} <b>{item.progress}/{TRAINING_GOAL}</b>{item.bonus > 0 && <small> · уже +{item.bonus}</small>}</span>)}</div>}<div className="characteristics-grid">{CHARACTERISTICS.map(({ id }) => <CharacteristicCard key={id} id={id} character={character} onChange={onChange} />)}</div></section>
       <SkillsPanel character={character} onChange={onChange} />
     </div><div className="front-right">
       <TalentPanel character={character} onChange={onChange} />

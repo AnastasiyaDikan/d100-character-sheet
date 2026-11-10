@@ -182,13 +182,13 @@ export { RACES } from "./races";
 export function createCharacter(): Character {
   const now = new Date().toISOString();
   const characteristics = Object.fromEntries(
-    CHARACTERISTICS.map((item) => [item.id, { ...item, value: 20, advances: 0, trainingProgress: null, trainingGoal: 10 }]),
+    CHARACTERISTICS.map((item) => [item.id, { ...item, value: 20, advances: 0, trainingProgress: null, trainingBonus: 0 }]),
   ) as Character["characteristics"];
   const aptitudes = Object.fromEntries(CHARACTERISTICS.map(({ id }) => [id, 0])) as Character["aptitudes"];
 
   return {
     formatVersion: 1,
-    dataRevision: 14,
+    dataRevision: 15,
     characterId: globalThis.crypto?.randomUUID?.() ?? `character-${Date.now()}`,
     savedAt: now,
     name: "Новый персонаж",
@@ -215,7 +215,7 @@ export function createCharacter(): Character {
     racialAptitudes: { ...aptitudes },
     appliedAptitudes: { ...aptitudes },
     freeAptitudes: false,
-    skills: BASE_SKILLS.map((skill) => ({ ...skill })),
+    skills: BASE_SKILLS.map((skill) => ({ ...skill, trainingProgress: null, trainingBonus: 0 })),
     talents: [],
     disorders: [],
     mutations: [],

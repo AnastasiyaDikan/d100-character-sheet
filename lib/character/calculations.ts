@@ -7,8 +7,17 @@ export const EXPERIENCE_COSTS = {
   noAptitudes: [500, 1000, 2000, 4000, 8000],
 } as const;
 
-export function characteristicValue(character: Character, id: CharacteristicId) {
+export function characteristicBaseValue(character: Character, id: CharacteristicId) {
   return Math.max(0, character.characteristics[id].value);
+}
+
+export function characteristicTrainingBonus(character: Character, id: CharacteristicId) {
+  const value = Number(character.characteristics[id].trainingBonus ?? 0);
+  return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+}
+
+export function characteristicValue(character: Character, id: CharacteristicId) {
+  return characteristicBaseValue(character, id) + characteristicTrainingBonus(character, id);
 }
 
 export function bonus(character: Character, id: CharacteristicId) {
@@ -141,11 +150,21 @@ export function skillModifier(level: number) {
   return [-20, 0, 10, 20, 30, 40][Math.max(0, Math.min(5, level))];
 }
 
-export function skillThreshold(character: Character, skillId: string) {
+export function skillTrainingBonus(character: Character, skillId: string) {
+  const skill = character.skills.find((item) => item.id === skillId);
+  const value = Number(skill?.trainingBonus ?? 0);
+  return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+}
+
+export function skillBaseThreshold(character: Character, skillId: string) {
   const skill = character.skills.find((item) => item.id === skillId);
   if (!skill) return 0;
   return characteristicCheckValue(character, skill.characteristic)
     + skillModifier(skill.level);
+}
+
+export function skillThreshold(character: Character, skillId: string) {
+  return skillBaseThreshold(character, skillId) + skillTrainingBonus(character, skillId);
 }
 
 export function experienceCost(aptitudes: number, step: number) {

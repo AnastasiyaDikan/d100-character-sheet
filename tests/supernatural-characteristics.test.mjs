@@ -6,7 +6,7 @@ async function loadRules() {
   const entry = `
     export { createCharacter, RACES } from ${JSON.stringify(new URL("../lib/character/data.ts", import.meta.url).pathname)};
     export { applyRace, calculateNaturalArmor, calculateRaceWounds } from ${JSON.stringify(new URL("../lib/character/race-engine.ts", import.meta.url).pathname)};
-    export { adjustedCharacteristicValue, adjustedEffectiveBonus, characteristicCheckValue, carrying, effectiveBonus, experienceCost, fatigueEffect, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillModifier, skillThreshold, spentExperience, supernaturalBonus, supernaturalMultiplier, zoneDefense } from ${JSON.stringify(new URL("../lib/character/calculations.ts", import.meta.url).pathname)};
+    export { adjustedCharacteristicValue, adjustedEffectiveBonus, characteristicBaseValue, characteristicCheckValue, characteristicTrainingBonus, characteristicValue, carrying, effectiveBonus, experienceCost, fatigueEffect, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillBaseThreshold, skillModifier, skillThreshold, skillTrainingBonus, spentExperience, supernaturalBonus, supernaturalMultiplier, zoneDefense } from ${JSON.stringify(new URL("../lib/character/calculations.ts", import.meta.url).pathname)};
     export { COMBAT_ACTIONS, combatActionAvailable, combatActionRollsHitLocation, combatActionValues, combatAttackCount, selectedCombatRank } from ${JSON.stringify(new URL("../lib/character/combat.ts", import.meta.url).pathname)};
     export { activeCombatWeapon, rollCombatStrikes, selectCombatWeapon } from ${JSON.stringify(new URL("../lib/character/combat-roll.ts", import.meta.url).pathname)};
     export { normalizeCharacter } from ${JSON.stringify(new URL("../lib/character/storage.ts", import.meta.url).pathname)};
@@ -17,6 +17,7 @@ async function loadRules() {
     export { hitLocationForRoll, hitLocationAccusative } from ${JSON.stringify(new URL("../lib/character/hit-location.ts", import.meta.url).pathname)};
     export { hasLightningReflexes, hasParanoia, initiativeModifier } from ${JSON.stringify(new URL("../lib/character/initiative.ts", import.meta.url).pathname)};
     export { parseDamageExpression, parseWeaponDamage, rollWeaponDamage, selectedWeaponDamage, weaponDamageModes, weaponExplosionRank } from ${JSON.stringify(new URL("../lib/character/weapon-damage.ts", import.meta.url).pathname)};
+    export { applyTrainingProgress, normalizeTrainingState, TRAINING_GOAL } from ${JSON.stringify(new URL("../lib/character/training.ts", import.meta.url).pathname)};
   `;
   const result = await build({ stdin: { contents: entry, loader: "ts", resolveDir: process.cwd() }, bundle: true, platform: "node", format: "esm", write: false });
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
@@ -479,32 +480,45 @@ test("adds combat defaults to old saves and preserves valid combat choices", asy
   assert.deepEqual(rules.normalizeCharacter({ ...configured, weapons: [legacyWeapon] }).weapons[0], { ...legacyWeapon, damageOneHand: "d8", damageTwoHands: "", extraDamage: "", active: false, damageCharacteristic: "strength", damageMode: 0 });
 });
 
-test("adds and preserves in-game training progress for characteristics and talents", async () => {
+test("tracks fixed ten-mark in-game training for characteristics and skills, not talents", async () => {
   const rules = await loadRules();
   const base = rules.createCharacter();
+  const dodge = base.skills.find((skill) => skill.id === "dodge");
+  assert.equal(rules.TRAINING_GOAL, 10);
   assert.equal(base.characteristics.strength.trainingProgress, null);
-  assert.equal(base.characteristics.strength.trainingGoal, 10);
+  assert.equal(base.characteristics.strength.trainingBonus, 0);
+  assert.equal(dodge.trainingProgress, null);
+  assert.equal(dodge.trainingBonus, 0);
 
   const legacyStrength = { ...base.characteristics.strength };
   delete legacyStrength.trainingProgress;
-  delete legacyStrength.trainingGoal;
   const normalizedLegacy = rules.normalizeCharacter({
     ...base,
     characteristics: { ...base.characteristics, strength: legacyStrength },
-    talents: [talent("Паранойя")],
+    talents: [{ ...talent("Паранойя"), trainingProgress: 4, trainingGoal: 12 }],
   });
   assert.equal(normalizedLegacy.characteristics.strength.trainingProgress, null);
-  assert.equal(normalizedLegacy.characteristics.strength.trainingGoal, 10);
-  assert.equal(normalizedLegacy.talents[0].trainingProgress, null);
-  assert.equal(normalizedLegacy.talents[0].trainingGoal, 10);
+  assert.equal(normalizedLegacy.characteristics.strength.trainingBonus, 0);
+  assert.equal(Object.hasOwn(normalizedLegacy.talents[0], "trainingProgress"), false);
+  assert.equal(Object.hasOwn(normalizedLegacy.talents[0], "trainingGoal"), false);
 
   const saved = rules.normalizeCharacter({
     ...base,
-    characteristics: { ...base.characteristics, strength: { ...base.characteristics.strength, trainingProgress: 6, trainingGoal: 12 } },
-    talents: [{ ...talent("Паранойя"), trainingProgress: 4, trainingGoal: 10 }],
+    characteristics: { ...base.characteristics, strength: { ...base.characteristics.strength, value: 55, trainingProgress: 12, trainingBonus: 4, trainingGoal: 12 } },
+    skills: base.skills.map((skill) => skill.id === "dodge" ? { ...skill, trainingProgress: 27, trainingBonus: 2, trainingGoal: 30 } : skill),
   });
-  assert.deepEqual([saved.characteristics.strength.trainingProgress, saved.characteristics.strength.trainingGoal], [6, 12]);
-  assert.deepEqual([saved.talents[0].trainingProgress, saved.talents[0].trainingGoal], [4, 10]);
+  assert.deepEqual([saved.characteristics.strength.trainingProgress, saved.characteristics.strength.trainingBonus], [2, 5]);
+  assert.deepEqual([saved.skills.find((skill) => skill.id === "dodge").trainingProgress, saved.skills.find((skill) => skill.id === "dodge").trainingBonus], [7, 4]);
+  assert.equal(Object.hasOwn(saved.characteristics.strength, "trainingGoal"), false);
+  assert.equal(Object.hasOwn(saved.skills.find((skill) => skill.id === "dodge"), "trainingGoal"), false);
+  assert.deepEqual(rules.applyTrainingProgress(4, 10), { trainingProgress: null, trainingBonus: 5 });
+  assert.equal(rules.characteristicBaseValue(saved, "strength"), 55);
+  assert.equal(rules.characteristicTrainingBonus(saved, "strength"), 5);
+  assert.equal(rules.characteristicValue(saved, "strength"), 60);
+
+  const dodgeBase = rules.skillBaseThreshold(saved, "dodge");
+  assert.equal(rules.skillTrainingBonus(saved, "dodge"), 4);
+  assert.equal(rules.skillThreshold(saved, "dodge"), dodgeBase + 4);
 });
 
 test("prices the +40 skill rank as the first purchase", async () => {

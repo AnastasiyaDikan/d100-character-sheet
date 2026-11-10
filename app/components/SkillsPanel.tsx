@@ -5,12 +5,13 @@ import { AlertTriangle, CheckCircle2, Dices, LoaderCircle, Plus, Search, Trash2 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { experienceCost, fatigueEffect, skillThreshold } from "@/lib/character/calculations";
+import { experienceCost, fatigueEffect, skillBaseThreshold, skillThreshold, skillTrainingBonus } from "@/lib/character/calculations";
 import { CHARACTERISTICS } from "@/lib/character/data";
 import { rollDie } from "@/lib/character/dice";
 import { createCharacterThumbnail, discordIsConnected, loadDiscordSettings, sendDiscordRoll } from "@/lib/character/discord-client";
 import { evaluateSkillCheck, type SkillCheckOutcome } from "@/lib/character/skill-check";
 import { specializationCharacteristic as selectedSpecializationCharacteristic } from "@/lib/character/skills";
+import { applyTrainingProgress, TRAINING_GOAL } from "@/lib/character/training";
 import type { Character, CharacteristicId, Skill } from "@/lib/character/types";
 
 const LEVELS = ["Know", "+10", "+20", "+30", "+40"];
@@ -80,12 +81,23 @@ export default function SkillsPanel({ character, onChange }: { character: Charac
       level: 0,
       custom: true,
       parentId: parent.id,
+      trainingProgress: null,
+      trainingBonus: 0,
     };
     const skills = [...character.skills];
     const insertAfter = skills.reduce((last, skill, index) => skill.id === parent.id || skill.parentId === parent.id ? index : last, -1);
     skills.splice(insertAfter + 1, 0, next);
     onChange({ ...character, skills });
     closeSpecializationDialog();
+  };
+
+  const updateTraining = (skill: Skill, rawValue: string) => {
+    const next = rawValue === "" ? null : Number(rawValue);
+    const training = applyTrainingProgress(skill.trainingBonus, next);
+    onChange({
+      ...character,
+      skills: character.skills.map((item) => item.id === skill.id ? { ...item, ...training } : item),
+    });
   };
 
   const rollSkillCheck = (skill: Skill, threshold: number) => {
@@ -123,9 +135,11 @@ export default function SkillsPanel({ character, onChange }: { character: Charac
         <thead><tr><th>Навык</th>{LEVELS.map((level) => <th key={level}>{level}</th>)}</tr></thead>
         <tbody>{filtered.map((skill) => {
           const threshold = skillThreshold(character, skill.id);
+          const baseThreshold = skillBaseThreshold(character, skill.id);
+          const inGameTraining = skillTrainingBonus(character, skill.id);
           const currentRoll = skillRoll?.skillId === skill.id ? skillRoll : null;
           return <tr key={skill.id} className={`${skill.custom ? "custom-skill" : ""} ${fatigueEffect(character, skill.characteristic) !== "none" ? "fatigue-affected-skill" : ""}`}>
-            <td><div className="skill-name-cell">{editingSkillId === skill.id ? <input className="skill-name-edit" autoFocus value={editingLabel} onChange={(event) => setEditingLabel(event.target.value)} onBlur={() => saveEditedLabel(skill.id)} onKeyDown={(event) => { if (event.key === "Enter") saveEditedLabel(skill.id); if (event.key === "Escape") setEditingSkillId(null); }} /> : <Popover open={activeSkillId === skill.id} onOpenChange={(open) => setActiveSkillId(open ? skill.id : null)}><PopoverTrigger asChild><button className="skill-name" onDoubleClick={() => { if (skill.custom) { setEditingSkillId(skill.id); setEditingLabel(skill.label); setActiveSkillId(null); } }}>{skill.label} <small>({character.characteristics[skill.characteristic].short})</small></button></PopoverTrigger><PopoverContent side="left" align="center" sideOffset={8} className="skill-threshold-popup"><div className="skill-threshold-summary"><span>{fatigueEffect(character, skill.characteristic) !== "none" ? "Порог с усталостью" : "Порог проверки"}</span><strong>{threshold}</strong><small>{skill.label}</small><button className="skill-roll-button" onClick={() => rollSkillCheck(skill, threshold)} aria-label={`Проверить навык ${skill.label}`} title={`Бросить d100 на ${skill.label}`}><Dices /><em>d100</em></button></div>{currentRoll && <output className={`skill-roll-result ${currentRoll.passed ? "passed" : "failed"}`} aria-live="polite"><strong>{currentRoll.roll}</strong><span>{currentRoll.text}</span>{currentRoll.delivery !== "idle" && <small className={`skill-roll-delivery ${currentRoll.delivery}`}>{currentRoll.delivery === "sending" && <><LoaderCircle className="spin" /> Discord…</>}{currentRoll.delivery === "sent" && <><CheckCircle2 /> Отправлено</>}{currentRoll.delivery === "error" && <><AlertTriangle /> Не отправлено</>}</small>}</output>}</PopoverContent></Popover>}{EXPANDABLE.has(skill.id) && <button className="skill-add" title="Добавить специализацию" onClick={() => openSpecializationDialog(skill)}><Plus /></button>}{skill.custom && <button className="skill-delete" title="Удалить навык" onClick={() => onChange({ ...character, skills: character.skills.filter((item) => item.id !== skill.id) })}><Trash2 /></button>}</div></td>
+            <td><div className="skill-name-cell">{editingSkillId === skill.id ? <input className="skill-name-edit" autoFocus value={editingLabel} onChange={(event) => setEditingLabel(event.target.value)} onBlur={() => saveEditedLabel(skill.id)} onKeyDown={(event) => { if (event.key === "Enter") saveEditedLabel(skill.id); if (event.key === "Escape") setEditingSkillId(null); }} /> : <Popover open={activeSkillId === skill.id} onOpenChange={(open) => setActiveSkillId(open ? skill.id : null)}><PopoverTrigger asChild><button className="skill-name" onDoubleClick={() => { if (skill.custom) { setEditingSkillId(skill.id); setEditingLabel(skill.label); setActiveSkillId(null); } }}>{skill.label} <small>({character.characteristics[skill.characteristic].short})</small></button></PopoverTrigger><PopoverContent side="left" align="center" sideOffset={8} className="skill-threshold-popup"><div className="skill-threshold-summary"><span>{fatigueEffect(character, skill.characteristic) !== "none" ? "Порог с усталостью" : "Порог проверки"}</span><strong>{threshold}</strong><small>{skill.label}</small><button className="skill-roll-button" onClick={() => rollSkillCheck(skill, threshold)} aria-label={`Проверить навык ${skill.label}`} title={`Бросить d100 на ${skill.label}`}><Dices /><em>d100</em></button></div><dl className="skill-training-breakdown"><div><dt>Базовый порог</dt><dd>{baseThreshold}</dd></div><div><dt>Прокачано ингеймово</dt><dd>+{inGameTraining}</dd></div></dl>{currentRoll && <output className={`skill-roll-result ${currentRoll.passed ? "passed" : "failed"}`} aria-live="polite"><strong>{currentRoll.roll}</strong><span>{currentRoll.text}</span>{currentRoll.delivery !== "idle" && <small className={`skill-roll-delivery ${currentRoll.delivery}`}>{currentRoll.delivery === "sending" && <><LoaderCircle className="spin" /> Discord…</>}{currentRoll.delivery === "sent" && <><CheckCircle2 /> Отправлено</>}{currentRoll.delivery === "error" && <><AlertTriangle /> Не отправлено</>}</small>}</output>}</PopoverContent></Popover>}<label className={`skill-training-control ${(skill.trainingProgress ?? 0) > 0 ? "active" : ""}`} title="Каждые 10 отметок дают навыку постоянный +1"><span className="sr-only">Прокачка {skill.label}</span><input type="number" min="0" max={TRAINING_GOAL} value={skill.trainingProgress ?? ""} placeholder="—" aria-label={`Прогресс прокачки: ${skill.label}`} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateTraining(skill, event.target.value)} /><i>/</i><b>{TRAINING_GOAL}</b></label>{EXPANDABLE.has(skill.id) && <button className="skill-add" title="Добавить специализацию" onClick={() => openSpecializationDialog(skill)}><Plus /></button>}{skill.custom && <button className="skill-delete" title="Удалить навык" onClick={() => onChange({ ...character, skills: character.skills.filter((item) => item.id !== skill.id) })}><Trash2 /></button>}</div></td>
             {LEVELS.map((level, index) => <td key={level}><button className={`skill-box ${skill.level >= index + 1 ? "active" : ""}`} aria-label={`${skill.label}: ${level}`} title={index === 4 ? `Стоимость +40: ${experienceCost(character.aptitudes[skill.characteristic], 1)} опыта` : undefined} onClick={() => setLevel(skill.id, index + 1)} /></td>)}
           </tr>;
         })}</tbody>
