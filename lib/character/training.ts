@@ -11,22 +11,24 @@ function wholeNonNegative(value: unknown) {
 }
 
 /**
- * Every ten recorded training marks permanently add +1 and start a new track.
- * Values over ten are supported for imported saves and pasted numbers.
+ * Every ten recorded marks complete one training cycle and start a new track.
+ * `reward` decides what the cycle grants: +5 for a characteristic or one rank
+ * for a skill. Values over ten are supported for imported saves and pasted
+ * numbers, so 17 always becomes one reward and 7/10.
  */
-export function normalizeTrainingState(progress: unknown, bonus: unknown): TrainingState {
+export function normalizeTrainingState(progress: unknown, bonus: unknown, reward = 1, maximumBonus = Number.MAX_SAFE_INTEGER): TrainingState {
   const marks = wholeNonNegative(progress);
   const completed = Math.floor(marks / TRAINING_GOAL);
   const remainder = marks % TRAINING_GOAL;
   return {
     trainingProgress: remainder === 0 ? null : remainder,
-    trainingBonus: wholeNonNegative(bonus) + completed,
+    trainingBonus: Math.min(wholeNonNegative(maximumBonus), wholeNonNegative(bonus) + completed * wholeNonNegative(reward)),
   };
 }
 
-export function applyTrainingProgress(currentBonus: unknown, nextProgress: number | null): TrainingState {
+export function applyTrainingProgress(currentBonus: unknown, nextProgress: number | null, reward = 1, maximumBonus = Number.MAX_SAFE_INTEGER): TrainingState {
   if (nextProgress === null) {
-    return { trainingProgress: null, trainingBonus: wholeNonNegative(currentBonus) };
+    return { trainingProgress: null, trainingBonus: Math.min(wholeNonNegative(maximumBonus), wholeNonNegative(currentBonus)) };
   }
-  return normalizeTrainingState(nextProgress, currentBonus);
+  return normalizeTrainingState(nextProgress, currentBonus, reward, maximumBonus);
 }

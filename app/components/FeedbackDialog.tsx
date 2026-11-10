@@ -40,7 +40,7 @@ export default function FeedbackDialog({ open, defaultSender, onOpenChange }: {
       kind,
       description: description.trim(),
       website,
-      version: "0.21.2",
+      version: "0.21.3",
       page: window.location.href,
     };
 

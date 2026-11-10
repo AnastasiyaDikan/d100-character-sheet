@@ -6,7 +6,7 @@ async function loadRules() {
   const entry = `
     export { createCharacter, RACES } from ${JSON.stringify(new URL("../lib/character/data.ts", import.meta.url).pathname)};
     export { applyRace, calculateNaturalArmor, calculateRaceWounds } from ${JSON.stringify(new URL("../lib/character/race-engine.ts", import.meta.url).pathname)};
-    export { adjustedCharacteristicValue, adjustedEffectiveBonus, characteristicBaseValue, characteristicCheckValue, characteristicTrainingBonus, characteristicValue, carrying, effectiveBonus, experienceCost, fatigueEffect, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillBaseThreshold, skillModifier, skillThreshold, skillTrainingBonus, spentExperience, supernaturalBonus, supernaturalMultiplier, zoneDefense } from ${JSON.stringify(new URL("../lib/character/calculations.ts", import.meta.url).pathname)};
+    export { adjustedCharacteristicValue, adjustedEffectiveBonus, characteristicBaseValue, characteristicCheckValue, characteristicTrainingBonus, characteristicValue, carrying, effectiveBonus, experienceCost, fatigueEffect, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillBaseThreshold, skillEffectiveLevel, skillModifier, skillThreshold, skillTrainingBonus, spentExperience, supernaturalBonus, supernaturalMultiplier, zoneDefense } from ${JSON.stringify(new URL("../lib/character/calculations.ts", import.meta.url).pathname)};
     export { COMBAT_ACTIONS, combatActionAvailable, combatActionRollsHitLocation, combatActionValues, combatAttackCount, selectedCombatRank } from ${JSON.stringify(new URL("../lib/character/combat.ts", import.meta.url).pathname)};
     export { activeCombatWeapon, rollCombatStrikes, selectCombatWeapon } from ${JSON.stringify(new URL("../lib/character/combat-roll.ts", import.meta.url).pathname)};
     export { normalizeCharacter } from ${JSON.stringify(new URL("../lib/character/storage.ts", import.meta.url).pathname)};
@@ -480,7 +480,7 @@ test("adds combat defaults to old saves and preserves valid combat choices", asy
   assert.deepEqual(rules.normalizeCharacter({ ...configured, weapons: [legacyWeapon] }).weapons[0], { ...legacyWeapon, damageOneHand: "d8", damageTwoHands: "", extraDamage: "", active: false, damageCharacteristic: "strength", damageMode: 0 });
 });
 
-test("tracks fixed ten-mark in-game training for characteristics and skills, not talents", async () => {
+test("turns each ten-mark training cycle into +5 characteristic or the next skill point", async () => {
   const rules = await loadRules();
   const base = rules.createCharacter();
   const dodge = base.skills.find((skill) => skill.id === "dodge");
@@ -504,21 +504,46 @@ test("tracks fixed ten-mark in-game training for characteristics and skills, not
 
   const saved = rules.normalizeCharacter({
     ...base,
-    characteristics: { ...base.characteristics, strength: { ...base.characteristics.strength, value: 55, trainingProgress: 12, trainingBonus: 4, trainingGoal: 12 } },
-    skills: base.skills.map((skill) => skill.id === "dodge" ? { ...skill, trainingProgress: 27, trainingBonus: 2, trainingGoal: 30 } : skill),
+    characteristics: { ...base.characteristics, strength: { ...base.characteristics.strength, value: 55, trainingProgress: 17, trainingBonus: 0, trainingGoal: 12 } },
+    skills: base.skills.map((skill) => skill.id === "dodge" ? { ...skill, level: 2, trainingProgress: 17, trainingBonus: 0, trainingGoal: 30 } : skill),
   });
-  assert.deepEqual([saved.characteristics.strength.trainingProgress, saved.characteristics.strength.trainingBonus], [2, 5]);
-  assert.deepEqual([saved.skills.find((skill) => skill.id === "dodge").trainingProgress, saved.skills.find((skill) => skill.id === "dodge").trainingBonus], [7, 4]);
+  assert.deepEqual([saved.characteristics.strength.trainingProgress, saved.characteristics.strength.trainingBonus], [7, 5]);
+  assert.deepEqual([saved.skills.find((skill) => skill.id === "dodge").trainingProgress, saved.skills.find((skill) => skill.id === "dodge").trainingBonus], [7, 1]);
   assert.equal(Object.hasOwn(saved.characteristics.strength, "trainingGoal"), false);
   assert.equal(Object.hasOwn(saved.skills.find((skill) => skill.id === "dodge"), "trainingGoal"), false);
-  assert.deepEqual(rules.applyTrainingProgress(4, 10), { trainingProgress: null, trainingBonus: 5 });
+  assert.deepEqual(rules.applyTrainingProgress(0, 17, 5), { trainingProgress: 7, trainingBonus: 5 });
+  assert.deepEqual(rules.applyTrainingProgress(0, 27, 1, 5), { trainingProgress: 7, trainingBonus: 2 });
   assert.equal(rules.characteristicBaseValue(saved, "strength"), 55);
   assert.equal(rules.characteristicTrainingBonus(saved, "strength"), 5);
   assert.equal(rules.characteristicValue(saved, "strength"), 60);
 
   const dodgeBase = rules.skillBaseThreshold(saved, "dodge");
-  assert.equal(rules.skillTrainingBonus(saved, "dodge"), 4);
-  assert.equal(rules.skillThreshold(saved, "dodge"), dodgeBase + 4);
+  assert.equal(rules.skillTrainingBonus(saved, "dodge"), 1);
+  assert.equal(rules.skillEffectiveLevel(saved, "dodge"), 3);
+  assert.equal(rules.skillThreshold(saved, "dodge"), dodgeBase + 10);
+  assert.equal(rules.selectedCombatRank(saved, "dodge"), 3);
+
+  const removed = {
+    ...saved,
+    characteristics: { ...saved.characteristics, strength: { ...saved.characteristics.strength, trainingBonus: 0 } },
+    skills: saved.skills.map((skill) => skill.id === "dodge" ? { ...skill, trainingBonus: 0 } : skill),
+  };
+  assert.equal(rules.characteristicValue(removed, "strength"), 55);
+  assert.equal(rules.skillEffectiveLevel(removed, "dodge"), 2);
+
+  const oldRevision = rules.normalizeCharacter({
+    ...base,
+    dataRevision: 15,
+    characteristics: { ...base.characteristics, strength: { ...base.characteristics.strength, trainingBonus: 1 } },
+  });
+  assert.equal(oldRevision.characteristics.strength.trainingBonus, 5);
+
+  const nearlyMaxed = rules.normalizeCharacter({
+    ...base,
+    skills: base.skills.map((skill) => skill.id === "dodge" ? { ...skill, level: 4, trainingProgress: 27 } : skill),
+  });
+  assert.equal(nearlyMaxed.skills.find((skill) => skill.id === "dodge").trainingBonus, 1);
+  assert.equal(nearlyMaxed.skills.find((skill) => skill.id === "dodge").trainingProgress, 7);
 });
 
 test("prices the +40 skill rank as the first purchase", async () => {

@@ -50,7 +50,7 @@ npm install
 npm run typecheck
 npm run build:local
 git add .
-git commit -m "Версия 0.21.2: ингейм-прокачка характеристик и навыков"
+git commit -m "Версия 0.21.3: исправлена ингейм-прокачка"
 git push
 ```
 

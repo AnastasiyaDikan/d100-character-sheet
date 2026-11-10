@@ -66,7 +66,10 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
   type LegacyTraining = { trainingProgress?: unknown; trainingBonus?: unknown; trainingGoal?: unknown };
   const normalizeSkillTraining = (skill: Skill & LegacyTraining): Skill => {
     const { trainingGoal: _legacyGoal, ...cleaned } = skill;
-    return { ...cleaned, ...normalizeTrainingState(skill.trainingProgress, skill.trainingBonus) };
+    return {
+      ...cleaned,
+      ...normalizeTrainingState(skill.trainingProgress, skill.trainingBonus, 1, Math.max(0, 5 - skill.level)),
+    };
   };
   const normalizedSkills = [
     ...BASE_SKILLS.map((baseSkill) => {
@@ -84,10 +87,16 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     const stored = raw.characteristics?.[id as keyof Character["characteristics"]];
     const legacyStored = (stored ?? {}) as typeof baseCharacteristic & LegacyTraining;
     const { trainingGoal: _legacyGoal, ...cleanedStored } = legacyStored;
+    const previousBonus = Number(legacyStored.trainingBonus ?? 0);
+    // In revision 15 every completed characteristic cycle was stored as +1.
+    // Revision 16 corrects that historical reward to +5 without changing the base stat.
+    const migratedBonus = raw.dataRevision === 15 && Number.isFinite(previousBonus)
+      ? Math.max(0, Math.trunc(previousBonus)) * 5
+      : legacyStored.trainingBonus;
     return [id, {
       ...baseCharacteristic,
       ...cleanedStored,
-      ...normalizeTrainingState(legacyStored.trainingProgress, legacyStored.trainingBonus),
+      ...normalizeTrainingState(legacyStored.trainingProgress, migratedBonus, 5),
     }];
   })) as Character["characteristics"];
   const talents = (raw.talents ?? []).map((talent) => {
@@ -100,7 +109,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     ...raw,
     raceId,
     raceChoices,
-    dataRevision: 15,
+    dataRevision: 16,
     avatarCrop: raw.avatarCrop ?? base.avatarCrop,
     characteristics,
     characteristicAdjustments: { ...base.characteristicAdjustments, ...(raw.characteristicAdjustments ?? {}) },
@@ -160,7 +169,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     const advances = legacy?.advances ?? 0;
     return [id, { ...value, advances, value: value.value + advances * 5 }];
   })) as Character["characteristics"];
-  const withProgress = { ...migrated, characteristics: migratedCharacteristics, dataRevision: 15 as const };
+  const withProgress = { ...migrated, characteristics: migratedCharacteristics, dataRevision: 16 as const };
   const woundsTotal = calculateRaceWounds(withProgress, race);
   return { ...withProgress, woundsTotal, woundsCurrent: woundsTotal };
 }

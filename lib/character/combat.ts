@@ -1,4 +1,4 @@
-import { adjustedCharacteristicValue, characteristicAdjustment, characteristicCheckValue, effectiveBonus, skillTrainingBonus } from "./calculations";
+import { adjustedCharacteristicValue, characteristicAdjustment, characteristicCheckValue, effectiveBonus, skillEffectiveLevel } from "./calculations";
 import type { SkillCheckOutcome } from "./skill-check";
 import { frenzyActive, frenzyCharacteristicAdjustment, hasTalent } from "./talent-effects";
 import type { Character, CharacteristicId, CombatSkillRank } from "./types";
@@ -76,7 +76,7 @@ export function combatActionRollsHitLocation(action: CombatAction) {
 }
 
 export function mainSkillRank(character: Character, skillId: "parry" | "dodge"): CombatSkillRank {
-  const level = character.skills.find((skill) => skill.id === skillId)?.level ?? 0;
+  const level = skillEffectiveLevel(character, skillId);
   return Math.max(0, Math.min(5, level)) as CombatSkillRank;
 }
 
@@ -192,7 +192,6 @@ export function combatActionValues(character: Character, action: CombatAction): 
     const base = characteristicBase(character, "melee");
     const rank = selectedCombatRank(character, "parry");
     const training = rankModifier(rank);
-    const inGameTraining = skillTrainingBonus(character, "parry");
     const weaponBonus = action.check === "parry-weapon"
       ? sharedWeaponBonus(character)
       : character.combatSettings.shoulderToShoulder;
@@ -200,19 +199,18 @@ export function combatActionValues(character: Character, action: CombatAction): 
     const shield = action.check === "parry-shield" && character.combatSettings.shieldEnabled ? Math.max(0, character.combatSettings.shieldBonus) : 0;
     return [{
       label: "Пар",
-      value: base.value + training + inGameTraining + weaponBonus + weaponModifier + shield,
-      explanation: `${base.explanation}; ${rank === 0 ? "не изучено -20" : `Парирование ${COMBAT_RANK_LABELS[rank - 1]} ${training >= 0 ? "+" : ""}${training}`}${inGameTraining ? `; ингейм-прокачка +${inGameTraining}` : ""}${shield ? `; Щит +${shield}` : ""}${weaponBonus ? `; боевые таланты +${weaponBonus}` : ""}${weaponModifier ? `; Оружие ${weaponModifier >= 0 ? "+" : ""}${weaponModifier}` : ""}`,
+      value: base.value + training + weaponBonus + weaponModifier + shield,
+      explanation: `${base.explanation}; ${rank === 0 ? "не изучено -20" : `Парирование ${COMBAT_RANK_LABELS[rank - 1]} ${training >= 0 ? "+" : ""}${training}`}${shield ? `; Щит +${shield}` : ""}${weaponBonus ? `; боевые таланты +${weaponBonus}` : ""}${weaponModifier ? `; Оружие ${weaponModifier >= 0 ? "+" : ""}${weaponModifier}` : ""}`,
     }];
   }
   if (action.check === "dodge") {
     const base = characteristicBase(character, "agility");
     const rank = selectedCombatRank(character, "dodge");
     const training = rankModifier(rank);
-    const inGameTraining = skillTrainingBonus(character, "dodge");
     return [{
       label: "Укл",
-      value: base.value + training + inGameTraining,
-      explanation: `${base.explanation}; ${rank === 0 ? "не изучено -20" : `Уклонение ${COMBAT_RANK_LABELS[rank - 1]} ${training >= 0 ? "+" : ""}${training}`}${inGameTraining ? `; ингейм-прокачка +${inGameTraining}` : ""}`,
+      value: base.value + training,
+      explanation: `${base.explanation}; ${rank === 0 ? "не изучено -20" : `Уклонение ${COMBAT_RANK_LABELS[rank - 1]} ${training >= 0 ? "+" : ""}${training}`}`,
     }];
   }
   if (action.check === "skill") return [{ label: "Навык", value: null, explanation: "Выберите соответствующее умение в основном чарнике." }];
