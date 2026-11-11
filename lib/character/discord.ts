@@ -69,6 +69,7 @@ function validDamage(damage: WeaponDamageResult | undefined) {
     && (validDetailedRolls || validLegacyRolls)
     && Number.isFinite(damage.characteristicModifier)
     && Number.isFinite(damage.fixedModifier)
+    && (damage.criticalCount === undefined || (Number.isInteger(damage.criticalCount) && damage.criticalCount >= 0 && damage.criticalCount <= 20))
     && Number.isFinite(damage.total);
 }
 
@@ -145,13 +146,11 @@ export function validDiscordRoll(request: DiscordRollRequest) {
 function formatAttackSeries(request: DiscordRollRequest) {
   if (!Array.isArray(request.attackResults) || request.attackResults.length < 2) return "";
   const attacks = request.attackResults.map((attack, index) => {
-    const damage = attack.damage
-      ? `урон **${attack.damage.total}** (${formatWeaponDamage(attack.damage)})`
-      : "урон не указан";
-    const location = attack.hitLocation
-      ? `попадание ${attack.hitLocation.roll} — ${hitLocationAccusative(attack.hitLocation.location)}`
-      : "зона попадания не указана";
-    return `**Удар ${index + 1}:** ${damage}; ${location}`;
+    const details = [
+      attack.damage ? `урон **${attack.damage.total}** (${formatWeaponDamage(attack.damage)})` : "",
+      attack.hitLocation ? `попадание ${attack.hitLocation.roll} — ${hitLocationAccusative(attack.hitLocation.location)}` : "",
+    ].filter(Boolean);
+    return `**Удар ${index + 1}:** ${details.join("; ")}`;
   });
   return `\n\n**Всего атак: ${request.attackResults.length}**\nДля защиты требуется ${request.attackResults.length} ${successWord(request.attackResults.length)} одной проверкой.\n${attacks.join("\n")}`;
 }
@@ -170,7 +169,7 @@ export function discordMessagePayload(request: DiscordRollRequest, hasAvatar: bo
       ? {
           author: { name: characterName },
           title: `Бросок урона — ${request.damage.weaponName}`,
-          description: `${formatWeaponDamage(request.damage)}\n# ${request.damage.total}`,
+          description: `${request.damage.criticalCount ? `Критов: **${request.damage.criticalCount}**\n` : ""}${formatWeaponDamage(request.damage)}\n# ${request.damage.total}`,
           color: customColor ?? 0x6d281f,
         }
     : request.kind === "initiative"

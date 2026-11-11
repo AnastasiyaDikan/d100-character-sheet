@@ -93,7 +93,7 @@ function StartScreen({ autosave, onNew, onLoad, onRestore, onDeleteAutosave }: {
         <label className="load-button"><FileUp /> Загрузить персонажа<input type="file" accept="application/json,.json" onChange={onLoad} /></label>
       </div>
       {autosave && <div className="autosave-card"><div><span>Найдено автосохранение</span><strong>{autosave.name || "Безымянный персонаж"}</strong><time>{new Date(autosave.savedAt).toLocaleString("ru-RU")}</time></div><div className="autosave-actions"><Button size="sm" onClick={onRestore}><RotateCcw /> Восстановить</Button><Button size="icon-sm" variant="ghost" aria-label="Удалить автосохранение" onClick={onDeleteAutosave}><Trash2 /></Button></div></div>}
-      <p className="version">Character Sheet v0.21.3</p>
+      <p className="version">Character Sheet v0.21.4</p>
     </section>
   </main>;
 }
@@ -313,7 +313,7 @@ function WeaponCard({ character, weapon, onChange, onActiveChange, onDelete }: {
   return <article className={`equipment-card weapon-card ${weapon.active ? "active-weapon" : ""}`}>
     <header>
       <input value={weapon.name} placeholder="Название оружия" onChange={(event) => onChange({ ...weapon, name: event.target.value })} />
-      <label className={`weapon-active-check ${weapon.active ? "active" : ""}`} title="Использовать это оружие для автоматического броска урона">
+      <label className={`weapon-active-check ${weapon.active ? "active" : ""}`} title="Использовать это оружие в Боевых действиях и отдельном броске урона">
         <Checkbox className="weapon-active-checkbox" checked={weapon.active} onCheckedChange={(checked) => onActiveChange(checked === true)} />
         <span>Используемое</span>
       </label>

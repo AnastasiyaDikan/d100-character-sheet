@@ -13,18 +13,21 @@ import { createCharacterThumbnail, discordIsConnected, loadDiscordSettings, send
 import { hitLocationAccusative, type HitLocationResult } from "@/lib/character/hit-location";
 import { evaluateSkillCheck, successWord, type SkillCheckOutcome } from "@/lib/character/skill-check";
 import { frenzyActive, hasTalent } from "@/lib/character/talent-effects";
-import { formatWeaponDamage, selectedWeaponDamage, type WeaponDamageResult } from "@/lib/character/weapon-damage";
+import { formatWeaponDamage, rollWeaponDamageWithCriticalCount, selectedWeaponDamage, type WeaponDamageResult } from "@/lib/character/weapon-damage";
 import type { Character, CombatSettings, CombatSkillRank } from "@/lib/character/types";
 
 type CombatRoll = SkillCheckOutcome & {
   actionId: string;
   label: string;
   serial: number;
-  damage: WeaponDamageResult | null;
-  damageError: boolean;
   hitLocation: HitLocationResult | null;
   attackCount: number;
   strikes: CombatStrikeRoll[];
+  delivery: "idle" | "sending" | "sent" | "error";
+};
+
+type ManualDamageRoll = WeaponDamageResult & {
+  serial: number;
   delivery: "idle" | "sending" | "sent" | "error";
 };
 
@@ -57,6 +60,9 @@ export default function CombatActionsDialog({ character, onChange }: { character
   const [combatRoll, setCombatRoll] = useState<CombatRoll | null>(null);
   const [weaponPickerOpen, setWeaponPickerOpen] = useState(false);
   const [weaponError, setWeaponError] = useState("");
+  const [criticalCount, setCriticalCount] = useState(0);
+  const [weaponDamageRoll, setWeaponDamageRoll] = useState<ManualDamageRoll | null>(null);
+  const [weaponDamageError, setWeaponDamageError] = useState(false);
   const weaponPickerRef = useRef<HTMLDivElement>(null);
   const settings = character.combatSettings;
   const hasFrenzyTalent = hasTalent(character, "Неистовство");
@@ -72,11 +78,13 @@ export default function CombatActionsDialog({ character, onChange }: { character
       return leftIndex - rightIndex;
     });
   const update = (patch: Partial<CombatSettings>) => onChange({ ...character, combatSettings: { ...settings, ...patch } });
-  const showWeaponPicker = (withError = false) => {
+  const showWeaponPicker = (withError = false, purpose: "attack" | "damage" = "attack") => {
     setWeaponPickerOpen(true);
     setWeaponError(withError
       ? character.weapons.length > 0
-        ? "Для броска атаки сначала выберите оружие, которым наносится урон."
+        ? purpose === "damage"
+          ? "Для броска урона сначала выберите оружие."
+          : "Для броска атаки сначала выберите оружие, которым наносится урон."
         : "В чарнике пока нет оружия. Добавьте его на второй странице, затем вернитесь к атаке."
       : "");
     requestAnimationFrame(() => weaponPickerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }));
@@ -85,6 +93,8 @@ export default function CombatActionsDialog({ character, onChange }: { character
     onChange(selectCombatWeapon(character, weaponId));
     setWeaponPickerOpen(false);
     setWeaponError("");
+    setWeaponDamageRoll(null);
+    setWeaponDamageError(false);
   };
   const showDescription = (event: MouseEvent, text: string) => setTooltip({
     text,
@@ -101,13 +111,10 @@ export default function CombatActionsDialog({ character, onChange }: { character
     const serial = Date.now() + Math.random();
     const outcome = evaluateSkillCheck(threshold, result);
     const strikes = rollCombatStrikes(character, action, outcome);
-    const firstStrike = strikes[0];
-    const damage = firstStrike?.damage ?? null;
-    const hitLocation = firstStrike?.hitLocation ?? null;
-    const damageError = strikes.some((strike) => strike.damageError);
+    const hitLocation = strikes[0]?.hitLocation ?? null;
     const attackCount = strikes.length;
     const discord = loadDiscordSettings(character.characterId);
-    setCombatRoll({ ...outcome, actionId: action.id, label, serial, damage, damageError, hitLocation, attackCount, strikes, delivery: discordIsConnected(discord) ? "sending" : "idle" });
+    setCombatRoll({ ...outcome, actionId: action.id, label, serial, hitLocation, attackCount, strikes, delivery: discordIsConnected(discord) ? "sending" : "idle" });
     if (!discordIsConnected(discord)) return;
     const multipleAttacks = strikes.length > 1;
     void createCharacterThumbnail(character).then((avatar) => sendDiscordRoll({
@@ -120,15 +127,45 @@ export default function CombatActionsDialog({ character, onChange }: { character
       actionName: action.action,
       checkLabel: label,
       threshold,
-      damage: multipleAttacks ? undefined : damage ?? undefined,
       hitLocation: multipleAttacks ? undefined : hitLocation ?? undefined,
       attackCount: multipleAttacks ? attackCount : undefined,
-      attackResults: multipleAttacks ? strikes.map((strike) => ({ damage: strike.damage ?? undefined, hitLocation: strike.hitLocation ?? undefined })) : undefined,
+      attackResults: multipleAttacks ? strikes.map((strike) => ({ hitLocation: strike.hitLocation ?? undefined })) : undefined,
       embedColor: discord.color,
     })).then(() => {
       setCombatRoll((current) => current?.serial === serial ? { ...current, delivery: "sent" } : current);
     }).catch(() => {
       setCombatRoll((current) => current?.serial === serial ? { ...current, delivery: "error" } : current);
+    });
+  };
+  const rollSelectedWeaponDamage = () => {
+    if (!selectedWeapon) {
+      setWeaponDamageRoll(null);
+      setWeaponDamageError(false);
+      showWeaponPicker(true, "damage");
+      return;
+    }
+    const damage = rollWeaponDamageWithCriticalCount(character, selectedWeapon, criticalCount);
+    if (!damage) {
+      setWeaponDamageRoll(null);
+      setWeaponDamageError(true);
+      return;
+    }
+    const serial = Date.now() + Math.random();
+    const discord = loadDiscordSettings(character.characterId);
+    setWeaponDamageError(false);
+    setWeaponDamageRoll({ ...damage, serial, delivery: discordIsConnected(discord) ? "sending" : "idle" });
+    if (!discordIsConnected(discord)) return;
+    void createCharacterThumbnail(character).then((avatar) => sendDiscordRoll({
+      webhookUrl: discord.webhookUrl,
+      characterName: character.name.trim() || "Безымянный персонаж",
+      avatar,
+      kind: "damage",
+      damage,
+      embedColor: discord.color,
+    })).then(() => {
+      setWeaponDamageRoll((current) => current?.serial === serial ? { ...current, delivery: "sent" } : current);
+    }).catch(() => {
+      setWeaponDamageRoll((current) => current?.serial === serial ? { ...current, delivery: "error" } : current);
     });
   };
   const rollIcon = (label: string) => label === "НР" ? <Swords /> : label === "НС" ? <ArrowUpRight /> : <Dices />;
@@ -164,6 +201,13 @@ export default function CombatActionsDialog({ character, onChange }: { character
                 <span><strong>Оружие для атаки</strong><small>{selectedWeapon ? `${selectedWeapon.name.trim() || "Без названия"} · ${selectedWeaponDamage(selectedWeapon) || "урон не заполнен"}` : "Оружие не выбрано"}</small></span>
                 <button type="button" onClick={() => weaponPickerOpen ? setWeaponPickerOpen(false) : showWeaponPicker()}><Swords /> {selectedWeapon ? "Сменить оружие" : "Выбрать оружие"}<ChevronDown /></button>
               </div>
+              <div className="combat-weapon-damage-controls">
+                <label><span>Криты</span><input type="number" min="0" max="20" value={criticalCount} aria-label="Количество критов для броска урона" onFocus={(event) => event.currentTarget.select()} onChange={(event) => setCriticalCount(Math.max(0, Math.min(20, Math.trunc(Number(event.target.value) || 0))))} /></label>
+                <button type="button" className="combat-damage-roll-button" onClick={rollSelectedWeaponDamage}><Dices /> Бросить урон</button>
+                <small>Каждый крит повторяет весь базовый пул оружия. Для серии атак бросайте урон отдельно за каждый удар.</small>
+              </div>
+              {weaponDamageRoll && <output className="combat-weapon-damage-result" aria-live="polite"><strong>{weaponDamageRoll.total}</strong><span>{formatWeaponDamage(weaponDamageRoll)}</span><small>Критов: {weaponDamageRoll.criticalCount ?? 0}</small>{weaponDamageRoll.delivery !== "idle" && <small className={weaponDamageRoll.delivery}>{weaponDamageRoll.delivery === "sending" ? "Discord…" : weaponDamageRoll.delivery === "sent" ? "Отправлено" : "Не отправлено"}</small>}</output>}
+              {weaponDamageError && <p className="combat-weapon-error"><AlertTriangle /> Укажите основной урон оружия: например, к8, 2к10+3 или к12+к10.</p>}
               {weaponError && <p className="combat-weapon-error"><AlertTriangle /> {weaponError}</p>}
               {weaponPickerOpen && <div className="combat-weapon-list" role="listbox" aria-label="Оружие для боевых действий">
                 {character.weapons.length === 0
@@ -181,7 +225,7 @@ export default function CombatActionsDialog({ character, onChange }: { character
               const currentRoll = combatRoll?.actionId === action.id ? combatRoll : null;
               const seriesAction = action.check === "rapid-attack" || action.check === "lightning-attack";
               return <tr key={action.id} onMouseMove={(event) => showDescription(event, action.description)} onMouseLeave={() => setTooltip(null)}>
-                <th><span>{action.action}</span><Info aria-hidden="true" /></th><td>{action.type}</td><td>{action.subtype}</td><td><div className="combat-values">{values.map((item) => item.value === null ? <span key={item.label} className="combat-value empty" title={item.explanation}>{item.label}</span> : <span key={item.label} className="combat-value" title={item.explanation}><small>{item.label}</small><strong>{item.value}</strong><button className={`combat-roll-button ${item.label === "НР" ? "melee" : item.label === "НС" ? "shooting" : ""}`} aria-label={`Бросить d100: ${action.action}, ${item.label}`} title={`Бросить d100 против ${item.value}`} onClick={(event) => { event.stopPropagation(); rollCombatCheck(action, item.label, item.value!); }}>{rollIcon(item.label)}</button></span>)}</div>{currentRoll && <output className={`combat-roll-result ${currentRoll.passed ? "passed" : "failed"}`} aria-live="polite"><strong>{currentRoll.roll}</strong><span>{currentRoll.text}</span>{seriesAction && currentRoll.attackCount > 0 && <span className="combat-multi-summary"><b>Всего атак: {currentRoll.attackCount}</b><small>Для защиты требуется {currentRoll.attackCount} {successWord(currentRoll.attackCount)} одной проверкой.</small></span>}{currentRoll.strikes.length > 1 ? <span className="combat-strike-list">{currentRoll.strikes.map((strike) => <span className="combat-strike" key={strike.number}><b>Удар {strike.number}</b>{strike.damage && <small>Урон: <strong>{strike.damage.total}</strong> · {formatWeaponDamage(strike.damage)}</small>}{strike.hitLocation && <small>Попадание: {strike.hitLocation.roll} · {hitLocationAccusative(strike.hitLocation.location)}</small>}{strike.damageError && <small className="damage-error">Урон не брошен: проверьте запись урона оружия.</small>}</span>)}</span> : <>{currentRoll.damage && <span className="combat-damage-result"><b>Урон: {currentRoll.damage.total}</b><small>{currentRoll.damage.weaponName} · {formatWeaponDamage(currentRoll.damage)}</small></span>}{currentRoll.hitLocation && <span className="combat-hit-location"><b>Попадание: {currentRoll.hitLocation.roll}</b><small>Атака попала в {hitLocationAccusative(currentRoll.hitLocation.location)}</small></span>}{currentRoll.damageError && <small className="damage-error"><AlertTriangle /> Урон не брошен: используйте запись к8, 2к8+3 или к12+к10+к4.</small>}</>}{currentRoll.delivery !== "idle" && <small className={currentRoll.delivery}>{currentRoll.delivery === "sending" && <><LoaderCircle className="spin" /> Discord…</>}{currentRoll.delivery === "sent" && <><CheckCircle2 /> Отправлено</>}{currentRoll.delivery === "error" && <><AlertTriangle /> Не отправлено</>}</small>}</output>}</td>
+                <th><span>{action.action}</span><Info aria-hidden="true" /></th><td>{action.type}</td><td>{action.subtype}</td><td><div className="combat-values">{values.map((item) => item.value === null ? <span key={item.label} className="combat-value empty" title={item.explanation}>{item.label}</span> : <span key={item.label} className="combat-value" title={item.explanation}><small>{item.label}</small><strong>{item.value}</strong><button className={`combat-roll-button ${item.label === "НР" ? "melee" : item.label === "НС" ? "shooting" : ""}`} aria-label={`Бросить d100: ${action.action}, ${item.label}`} title={`Бросить d100 против ${item.value}`} onClick={(event) => { event.stopPropagation(); rollCombatCheck(action, item.label, item.value!); }}>{rollIcon(item.label)}</button></span>)}</div>{currentRoll && <output className={`combat-roll-result ${currentRoll.passed ? "passed" : "failed"}`} aria-live="polite"><strong>{currentRoll.roll}</strong><span>{currentRoll.text}</span>{seriesAction && currentRoll.attackCount > 0 && <span className="combat-multi-summary"><b>Всего атак: {currentRoll.attackCount}</b><small>Для защиты требуется {currentRoll.attackCount} {successWord(currentRoll.attackCount)} одной проверкой.</small></span>}{currentRoll.strikes.length > 1 ? <span className="combat-strike-list">{currentRoll.strikes.map((strike) => <span className="combat-strike" key={strike.number}><b>Удар {strike.number}</b>{strike.hitLocation && <small>Попадание: {strike.hitLocation.roll} · {hitLocationAccusative(strike.hitLocation.location)}</small>}</span>)}</span> : currentRoll.hitLocation && <span className="combat-hit-location"><b>Попадание: {currentRoll.hitLocation.roll}</b><small>Атака попала в {hitLocationAccusative(currentRoll.hitLocation.location)}</small></span>}{currentRoll.delivery !== "idle" && <small className={currentRoll.delivery}>{currentRoll.delivery === "sending" && <><LoaderCircle className="spin" /> Discord…</>}{currentRoll.delivery === "sent" && <><CheckCircle2 /> Отправлено</>}{currentRoll.delivery === "error" && <><AlertTriangle /> Не отправлено</>}</small>}</output>}</td>
               </tr>;
             })}</tbody></table>
           </section>

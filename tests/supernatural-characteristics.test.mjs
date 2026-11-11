@@ -16,7 +16,7 @@ async function loadRules() {
     export { specializationCharacteristic } from ${JSON.stringify(new URL("../lib/character/skills.ts", import.meta.url).pathname)};
     export { hitLocationForRoll, hitLocationAccusative } from ${JSON.stringify(new URL("../lib/character/hit-location.ts", import.meta.url).pathname)};
     export { hasLightningReflexes, hasParanoia, initiativeModifier } from ${JSON.stringify(new URL("../lib/character/initiative.ts", import.meta.url).pathname)};
-    export { parseDamageExpression, parseWeaponDamage, rollWeaponDamage, selectedWeaponDamage, weaponDamageModes, weaponExplosionRank } from ${JSON.stringify(new URL("../lib/character/weapon-damage.ts", import.meta.url).pathname)};
+    export { parseDamageExpression, parseWeaponDamage, rollWeaponDamage, rollWeaponDamageWithCriticalCount, selectedWeaponDamage, weaponDamageModes, weaponExplosionRank } from ${JSON.stringify(new URL("../lib/character/weapon-damage.ts", import.meta.url).pathname)};
     export { applyTrainingProgress, normalizeTrainingState, TRAINING_GOAL } from ${JSON.stringify(new URL("../lib/character/training.ts", import.meta.url).pathname)};
   `;
   const result = await build({ stdin: { contents: entry, loader: "ts", resolveDir: process.cwd() }, bundle: true, platform: "node", format: "esm", write: false });
@@ -316,11 +316,10 @@ test("shows talent-only multiattacks and calculates every strike in the series",
   assert.equal(rules.combatAttackCount(character, lightning, fourSuccesses), 5, "base attack plus one per success");
   assert.equal(rules.combatAttackCount(character, lightning, { ...fourSuccesses, successes: 30 }), 8, "extra attacks are capped by the melee modifier");
 
-  const damageRolls = [1, 2, 3];
   const locationRolls = [1, 24, 71];
-  const strikes = rules.rollCombatStrikes(character, rapid, fourSuccesses, () => damageRolls.shift(), () => locationRolls.shift());
+  const strikes = rules.rollCombatStrikes(character, rapid, fourSuccesses, () => locationRolls.shift());
   assert.equal(strikes.length, 3);
-  assert.deepEqual(strikes.map((strike) => strike.damage.total), [3, 4, 5], "every attack rolls its own damage pool and adds the stat separately");
+  assert.equal(strikes.some((strike) => Object.hasOwn(strike, "damage")), false, "combat checks no longer roll damage automatically");
   assert.deepEqual(strikes.map((strike) => strike.hitLocation.location), ["Голова", "Левая рука", "Правая нога"]);
 });
 
@@ -448,6 +447,12 @@ test("repeats the entire base weapon pool for every critical", async () => {
   assert.equal(damage.diceCount, 10);
   assert.deepEqual(damage.rollDetails.map((roll) => roll.sides), [8, 8, 8, 8, 8, 8, 8, 8, 8, 4]);
   assert.deepEqual(damage.rollDetails.map((roll) => roll.kind), ["main", "main", "main", "critical", "critical", "critical", "critical", "critical", "critical", "extra"]);
+
+  const manualQueue = [1, 2, 3, 4, 5, 6, 7, 8, 1, 4];
+  const manual = rules.rollWeaponDamageWithCriticalCount(character, weapon, 2, () => manualQueue.shift());
+  assert.equal(manual.criticalCount, 2);
+  assert.equal(manual.criticalDice, 6);
+  assert.equal(manual.diceCount, 10);
 });
 
 test("copies parry and dodge ranks from the sheet but allows combat overrides", async () => {
@@ -706,6 +711,10 @@ test("accepts only Discord webhook URLs and builds safe roll embeds", async () =
   const directDamagePayload = rules.discordMessagePayload({ characterName: "Лиза Ашвинг", kind: "damage", damage }, true);
   assert.match(directDamagePayload.embeds[0].title, /Бросок урона/);
   assert.equal(rules.validDiscordRoll({ kind: "damage", damage }), true);
+  const criticalDamage = { ...damage, criticalCount: 2 };
+  const criticalDamagePayload = rules.discordMessagePayload({ characterName: "Лиза Ашвинг", kind: "damage", damage: criticalDamage }, true);
+  assert.match(criticalDamagePayload.embeds[0].description, /Критов: \*\*2\*\*/);
+  assert.equal(rules.validDiscordRoll({ kind: "damage", damage: criticalDamage }), true);
 });
 
 test("maps every d100 hit-location boundary", async () => {

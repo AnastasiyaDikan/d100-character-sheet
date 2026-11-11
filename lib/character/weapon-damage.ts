@@ -23,6 +23,8 @@ export type WeaponDamageResult = {
   characteristic: "strength" | "agility";
   characteristicModifier: number;
   fixedModifier: number;
+  /** Количество выбранных критов, каждый из которых повторяет базовый пул оружия. */
+  criticalCount?: number;
   criticalDice: number;
   explosionRank: 0 | 1 | 2;
   total: number;
@@ -123,7 +125,8 @@ export function formatWeaponDamage(result: WeaponDamageResult) {
     return values.length ? `${label}: ${values.map((roll) => `d${roll.sides}[${roll.value}]`).join(" + ")}` : "";
   };
   const pieces = [
-    group(["main", "critical"], "Основной"),
+    group(["main"], "Основной"),
+    group(["critical"], "Крит"),
     group(["explosion"], "Взрыв"),
     group(["extra"], "Доп."),
     `${result.characteristic === "agility" ? "Ловкость" : "Сила"} ${result.characteristicModifier >= 0 ? "+" : "−"}${Math.abs(result.characteristicModifier)}`,
@@ -189,8 +192,31 @@ export function rollWeaponDamage(
     characteristic: weapon.damageCharacteristic,
     characteristicModifier,
     fixedModifier,
+    criticalCount,
     criticalDice,
     explosionRank,
     total: rolls.reduce((sum, value) => sum + value, 0) + characteristicModifier + fixedModifier,
   };
+}
+
+/** Отдельный бросок урона с явно выбранным количеством критов. */
+export function rollWeaponDamageWithCriticalCount(
+  character: Character,
+  weapon: Weapon,
+  criticalCount: number,
+  roller: (sides: number) => number = rollDie,
+) {
+  const safeCriticalCount = Number.isFinite(criticalCount)
+    ? Math.max(0, Math.min(20, Math.trunc(criticalCount)))
+    : 0;
+  const outcome: SkillCheckOutcome = {
+    roll: 50,
+    threshold: 50,
+    passed: true,
+    critical: null,
+    successes: safeCriticalCount * 5,
+    failures: 0,
+    text: "",
+  };
+  return rollWeaponDamage(character, weapon, outcome, roller);
 }
