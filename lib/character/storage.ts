@@ -66,8 +66,10 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
   type LegacyTraining = { trainingProgress?: unknown; trainingBonus?: unknown; trainingGoal?: unknown };
   const normalizeSkillTraining = (skill: Skill & LegacyTraining): Skill => {
     const { trainingGoal: _legacyGoal, ...cleaned } = skill;
+    const rawAdjustment = Number(skill.adjustment ?? 0);
     return {
       ...cleaned,
+      adjustment: Number.isFinite(rawAdjustment) ? Math.max(-200, Math.min(200, Math.trunc(rawAdjustment))) : 0,
       ...normalizeTrainingState(skill.trainingProgress, skill.trainingBonus, 1, Math.max(0, 5 - skill.level)),
     };
   };
@@ -109,7 +111,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     ...raw,
     raceId,
     raceChoices,
-    dataRevision: 16,
+    dataRevision: 17,
     avatarCrop: raw.avatarCrop ?? base.avatarCrop,
     characteristics,
     characteristicAdjustments: { ...base.characteristicAdjustments, ...(raw.characteristicAdjustments ?? {}) },
@@ -169,7 +171,7 @@ export function normalizeCharacter(raw: Character & { fate?: number }): Characte
     const advances = legacy?.advances ?? 0;
     return [id, { ...value, advances, value: value.value + advances * 5 }];
   })) as Character["characteristics"];
-  const withProgress = { ...migrated, characteristics: migratedCharacteristics, dataRevision: 16 as const };
+  const withProgress = { ...migrated, characteristics: migratedCharacteristics, dataRevision: 17 as const };
   const woundsTotal = calculateRaceWounds(withProgress, race);
   return { ...withProgress, woundsTotal, woundsCurrent: woundsTotal };
 }

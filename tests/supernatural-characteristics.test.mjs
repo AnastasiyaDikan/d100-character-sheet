@@ -6,7 +6,7 @@ async function loadRules() {
   const entry = `
     export { createCharacter, RACES } from ${JSON.stringify(new URL("../lib/character/data.ts", import.meta.url).pathname)};
     export { applyRace, calculateNaturalArmor, calculateRaceWounds } from ${JSON.stringify(new URL("../lib/character/race-engine.ts", import.meta.url).pathname)};
-    export { adjustedCharacteristicValue, adjustedEffectiveBonus, characteristicBaseValue, characteristicCheckValue, characteristicTrainingBonus, characteristicValue, carrying, effectiveBonus, experienceCost, fatigueEffect, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillBaseThreshold, skillEffectiveLevel, skillModifier, skillThreshold, skillTrainingBonus, spentExperience, supernaturalBonus, supernaturalMultiplier, zoneDefense } from ${JSON.stringify(new URL("../lib/character/calculations.ts", import.meta.url).pathname)};
+    export { adjustedCharacteristicValue, adjustedEffectiveBonus, characteristicBaseValue, characteristicCheckValue, characteristicTrainingBonus, characteristicValue, carrying, effectiveBonus, experienceCost, fatigueEffect, fatiguedCharacteristicValue, fatiguedEffectiveBonus, fatigueThreshold, movement, recordedSpentExperience, skillAdjustment, skillBaseThreshold, skillEffectiveLevel, skillModifier, skillThreshold, skillTrainingBonus, spentExperience, supernaturalBonus, supernaturalMultiplier, zoneDefense } from ${JSON.stringify(new URL("../lib/character/calculations.ts", import.meta.url).pathname)};
     export { COMBAT_ACTIONS, combatActionAvailable, combatActionRollsHitLocation, combatActionValues, combatAttackCount, selectedCombatRank } from ${JSON.stringify(new URL("../lib/character/combat.ts", import.meta.url).pathname)};
     export { activeCombatWeapon, rollCombatStrikes, selectCombatWeapon } from ${JSON.stringify(new URL("../lib/character/combat-roll.ts", import.meta.url).pathname)};
     export { normalizeCharacter } from ${JSON.stringify(new URL("../lib/character/storage.ts", import.meta.url).pathname)};
@@ -133,6 +133,34 @@ test("applies temporary buffs and debuffs downstream but not to wounds", async (
   assert.equal(rules.zoneDefense(character, "body"), 2);
   assert.deepEqual(rules.movement(character), { free: 7, halfAction: 14, charge: 21, run: 42 });
   assert.equal(rules.calculateRaceWounds(character, race), rules.calculateRaceWounds({ ...character, characteristicAdjustments: base.characteristicAdjustments }, race), "temporary effects must not change wounds");
+});
+
+test("applies individual skill buffs and debuffs to checks and combat actions", async () => {
+  const rules = await loadRules();
+  const base = rules.createCharacter();
+  const adjusted = {
+    ...base,
+    skills: base.skills.map((skill) => skill.id === "dodge"
+      ? { ...skill, adjustment: 30 }
+      : skill.id === "parry"
+        ? { ...skill, adjustment: -20 }
+        : skill),
+  };
+  const dodge = rules.COMBAT_ACTIONS.find((action) => action.id === "dodge");
+  const parry = rules.COMBAT_ACTIONS.find((action) => action.id === "parry-weapon");
+
+  assert.equal(rules.skillAdjustment(adjusted, "dodge"), 30);
+  assert.equal(rules.skillAdjustment(adjusted, "parry"), -20);
+  assert.equal(rules.skillBaseThreshold(adjusted, "dodge"), rules.skillBaseThreshold(base, "dodge"));
+  assert.equal(rules.skillThreshold(adjusted, "dodge"), rules.skillThreshold(base, "dodge") + 30);
+  assert.equal(rules.skillThreshold(adjusted, "parry"), rules.skillThreshold(base, "parry") - 20);
+  assert.equal(rules.combatActionValues(adjusted, dodge)[0].value, rules.combatActionValues(base, dodge)[0].value + 30);
+  assert.equal(rules.combatActionValues(adjusted, parry)[0].value, rules.combatActionValues(base, parry)[0].value - 20);
+
+  const legacy = { ...base, skills: base.skills.map(({ adjustment: _adjustment, ...skill }) => skill) };
+  assert.equal(rules.normalizeCharacter(legacy).skills.find((skill) => skill.id === "dodge").adjustment, 0);
+  const clamped = rules.normalizeCharacter({ ...base, skills: base.skills.map((skill) => skill.id === "dodge" ? { ...skill, adjustment: 999 } : skill) });
+  assert.equal(clamped.skills.find((skill) => skill.id === "dodge").adjustment, 200);
 });
 
 test("rolls initiative from adjusted agility and doubles it for Lightning Reflexes", async () => {

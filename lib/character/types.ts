@@ -28,6 +28,8 @@ export type Skill = {
   label: string;
   characteristic: CharacteristicId;
   level: number;
+  /** Временный ситуационный бонус или штраф к проверке именно этого навыка. */
+  adjustment?: number;
   custom?: boolean;
   parentId?: string;
   /** Текущий прогресс незавершённой ингейм-тренировки. */

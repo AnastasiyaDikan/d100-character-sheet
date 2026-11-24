@@ -5,7 +5,7 @@ import { AlertTriangle, CheckCircle2, Dices, LoaderCircle, Plus, Search, Trash2 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { experienceCost, fatigueEffect, skillBaseThreshold, skillEffectiveLevel, skillThreshold, skillTrainingBonus } from "@/lib/character/calculations";
+import { experienceCost, fatigueEffect, skillAdjustment, skillBaseThreshold, skillEffectiveLevel, skillThreshold, skillTrainingBonus } from "@/lib/character/calculations";
 import { CHARACTERISTICS } from "@/lib/character/data";
 import { rollDie } from "@/lib/character/dice";
 import { createCharacterThumbnail, discordIsConnected, loadDiscordSettings, sendDiscordRoll } from "@/lib/character/discord-client";
@@ -85,6 +85,7 @@ export default function SkillsPanel({ character, onChange }: { character: Charac
       label: `${parent.label}: ${specialization.trim()}`,
       characteristic: selectedSpecializationCharacteristic(parent, specializationCharacteristic),
       level: 0,
+      adjustment: 0,
       custom: true,
       parentId: parent.id,
       trainingProgress: null,
@@ -114,6 +115,15 @@ export default function SkillsPanel({ character, onChange }: { character: Charac
     onChange({
       ...character,
       skills: character.skills.map((item) => item.id === skill.id ? { ...item, trainingBonus } : item),
+    });
+  };
+
+  const updateAdjustment = (skill: Skill, rawValue: string) => {
+    const parsed = rawValue === "" ? 0 : Number(rawValue);
+    const adjustment = Number.isFinite(parsed) ? Math.max(-200, Math.min(200, Math.trunc(parsed))) : 0;
+    onChange({
+      ...character,
+      skills: character.skills.map((item) => item.id === skill.id ? { ...item, adjustment } : item),
     });
   };
 
@@ -155,8 +165,9 @@ export default function SkillsPanel({ character, onChange }: { character: Charac
           const baseThreshold = skillBaseThreshold(character, skill.id);
           const inGameTraining = skillTrainingBonus(character, skill.id);
           const effectiveLevel = skillEffectiveLevel(character, skill.id);
+          const adjustment = skillAdjustment(character, skill.id);
           const currentRoll = skillRoll?.skillId === skill.id ? skillRoll : null;
-          return <tr key={skill.id} className={`${skill.custom ? "custom-skill" : ""} ${fatigueEffect(character, skill.characteristic) !== "none" ? "fatigue-affected-skill" : ""}`}>
+          return <tr key={skill.id} className={`${skill.custom ? "custom-skill" : ""} ${fatigueEffect(character, skill.characteristic) !== "none" ? "fatigue-affected-skill" : ""} ${adjustment > 0 ? "skill-buffed" : adjustment < 0 ? "skill-debuffed" : ""}`}>
             <td>
               <div className="skill-name-cell">
                 {editingSkillId === skill.id
@@ -170,11 +181,13 @@ export default function SkillsPanel({ character, onChange }: { character: Charac
                         <div><dt>Куплено точек</dt><dd>{skill.level}</dd></div>
                         <div className="training-bonus-edit"><dt>Ингейм-точки</dt><dd><input type="number" min="0" max={Math.max(0, 5 - skill.level)} value={inGameTraining || ""} placeholder="0" aria-label={`Ингеймовые точки: ${skill.label}`} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateTrainingBonus(skill, event.target.value)} /></dd></div>
                         <div><dt>Всего точек</dt><dd>{effectiveLevel}</dd></div>
+                        <div className={`skill-adjustment-line ${adjustment > 0 ? "buff" : adjustment < 0 ? "debuff" : ""}`}><dt>Баф / штраф</dt><dd>{adjustment > 0 ? "+" : ""}{adjustment}</dd></div>
                       </dl>
                       <small className="skill-training-hint">Каждые 10 отметок открывают следующую точку навыка. Ингейм-точки можно исправить или удалить вручную.</small>
                       {currentRoll && <output className={`skill-roll-result ${currentRoll.passed ? "passed" : "failed"}`} aria-live="polite"><strong>{currentRoll.roll}</strong><span>{currentRoll.text}</span>{currentRoll.delivery !== "idle" && <small className={`skill-roll-delivery ${currentRoll.delivery}`}>{currentRoll.delivery === "sending" && <><LoaderCircle className="spin" /> Discord…</>}{currentRoll.delivery === "sent" && <><CheckCircle2 /> Отправлено</>}{currentRoll.delivery === "error" && <><AlertTriangle /> Не отправлено</>}</small>}</output>}
                     </PopoverContent>
                   </Popover>}
+                <label className={`skill-adjustment-control ${adjustment > 0 ? "buff" : adjustment < 0 ? "debuff" : ""}`} title="Временный бонус или штраф к этому навыку. Например: -20 или 30"><span aria-hidden="true">±</span><span className="sr-only">Баф или штраф: {skill.label}</span><input type="number" step="10" value={adjustment === 0 ? "" : adjustment} placeholder="0" aria-label={`Баф или штраф: ${skill.label}`} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateAdjustment(skill, event.target.value)} /></label>
                 <label className={`skill-training-control ${(skill.trainingProgress ?? 0) > 0 ? "active" : ""}`} title="Можно ввести число больше 10: новая точка добавится автоматически, остаток сохранится"><span className="sr-only">Прокачка {skill.label}</span><input type="number" min="0" value={skill.trainingProgress ?? ""} placeholder="—" aria-label={`Прогресс прокачки: ${skill.label}`} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateTraining(skill, event.target.value)} /><i>/</i><b>{TRAINING_GOAL}</b></label>
                 {EXPANDABLE.has(skill.id) && <button className="skill-add" title="Добавить специализацию" onClick={() => openSpecializationDialog(skill)}><Plus /></button>}
                 {skill.custom && <button className="skill-delete" title="Удалить навык" onClick={() => onChange({ ...character, skills: character.skills.filter((item) => item.id !== skill.id) })}><Trash2 /></button>}

@@ -162,6 +162,12 @@ export function skillEffectiveLevel(character: Character, skillId: string) {
   return Math.max(0, Math.min(5, skill.level + skillTrainingBonus(character, skillId)));
 }
 
+export function skillAdjustment(character: Character, skillId: string) {
+  const skill = character.skills.find((item) => item.id === skillId);
+  const value = Number(skill?.adjustment ?? 0);
+  return Number.isFinite(value) ? Math.max(-200, Math.min(200, Math.trunc(value))) : 0;
+}
+
 export function skillBaseThreshold(character: Character, skillId: string) {
   const skill = character.skills.find((item) => item.id === skillId);
   if (!skill) return 0;
@@ -173,7 +179,8 @@ export function skillThreshold(character: Character, skillId: string) {
   const skill = character.skills.find((item) => item.id === skillId);
   if (!skill) return 0;
   return characteristicCheckValue(character, skill.characteristic)
-    + skillModifier(skillEffectiveLevel(character, skillId));
+    + skillModifier(skillEffectiveLevel(character, skillId))
+    + skillAdjustment(character, skillId);
 }
 
 export function experienceCost(aptitudes: number, step: number) {

@@ -33,7 +33,7 @@ npm install
 npm run typecheck
 npm run build:local
 git add .
-git commit -m "Версия 0.21.4: отдельный бросок урона"
+git commit -m "Версия 0.21.5: баффы и штрафы навыков"
 git push
 ```
 

@@ -41,7 +41,7 @@ export const BASE_SKILLS: Skill[] = [
   ["stealth", "Скрытность", "agility"],
   ["scrutiny", "Проницательность", "perception"],
   ["trade", "Ремесло", "intelligence"],
-].map(([id, label, characteristic]) => ({ id, label, characteristic, level: 0 })) as Skill[];
+].map(([id, label, characteristic]) => ({ id, label, characteristic, level: 0, adjustment: 0 })) as Skill[];
 
 const LEGACY_RACES: Race[] = [
   {
@@ -188,7 +188,7 @@ export function createCharacter(): Character {
 
   return {
     formatVersion: 1,
-    dataRevision: 16,
+    dataRevision: 17,
     characterId: globalThis.crypto?.randomUUID?.() ?? `character-${Date.now()}`,
     savedAt: now,
     name: "Новый персонаж",
@@ -215,7 +215,7 @@ export function createCharacter(): Character {
     racialAptitudes: { ...aptitudes },
     appliedAptitudes: { ...aptitudes },
     freeAptitudes: false,
-    skills: BASE_SKILLS.map((skill) => ({ ...skill, trainingProgress: null, trainingBonus: 0 })),
+    skills: BASE_SKILLS.map((skill) => ({ ...skill, adjustment: 0, trainingProgress: null, trainingBonus: 0 })),
     talents: [],
     disorders: [],
     mutations: [],
